@@ -1331,7 +1331,12 @@ const constellationState = {
   loading: false,
   loaded: false,
   failed: false,
-  redrawKey: ""
+  redrawKey: "",
+  linesPack: null,
+  boundsPack: null,
+  namesPack: null,
+  batchProjection: undefined,
+  ctx: null
 };
 
 async function fetchFirstWorking(urls){
@@ -1362,6 +1367,9 @@ async function ensureConstellationData(){
     constellationState.lines = lines;
     constellationState.bounds = bounds;
     constellationState.names = names;
+    constellationState.linesPack = packConstellationLines(lines);
+    constellationState.boundsPack = packConstellationBounds(bounds);
+    constellationState.namesPack = packConstellationNames(names);
     constellationState.loaded = true;
     constellationState.failed = false;
     $("constellationStatus").textContent = "Ready";
@@ -1388,49 +1396,6 @@ function normalizeRa(lon){
   return ra;
 }
 
-function projectSkyCoordinate(coord){
-  if(!Array.isArray(coord) || coord.length < 2) return null;
-  const ra = normalizeRa(coord[0]);
-  const dec = Number(coord[1]);
-  if(!Number.isFinite(ra) || !Number.isFinite(dec)) return null;
-  return aladin.world2pix(ra, dec);
-}
-
-function canvasPathFromCoordinates(ctx, coords, closePath=false){
-  let started = false;
-  let previous = null;
-  const W = $("viewer").clientWidth;
-  const H = $("viewer").clientHeight;
-  const jumpLimit = Math.max(W, H) * 0.65;
-
-  for(const coord of coords){
-    const point = projectSkyCoordinate(coord);
-    if(!point || !Number.isFinite(point[0]) || !Number.isFinite(point[1])){
-      previous = null;
-      started = false;
-      continue;
-    }
-
-    const x = point[0], y = point[1];
-    const farOutside = x < -W || x > W * 2 || y < -H || y > H * 2;
-    if(farOutside){
-      previous = null;
-      started = false;
-      continue;
-    }
-
-    if(!previous || Math.hypot(x - previous[0], y - previous[1]) > jumpLimit){
-      ctx.moveTo(x, y);
-      started = true;
-    }else{
-      ctx.lineTo(x, y);
-    }
-    previous = [x, y];
-  }
-
-  if(closePath && started) ctx.closePath();
-}
-
 function forEachGeoGeometry(geojson, callback){
   if(!geojson) return;
   const features = geojson.type === "FeatureCollection" ? geojson.features : [geojson];
@@ -1441,66 +1406,60 @@ function forEachGeoGeometry(geojson, callback){
   }
 }
 
-function drawConstellationBounds(ctx, opacity){
-  const data = constellationState.bounds;
-  if(!data) return;
+// Flatten GeoJSON into typed RA/Dec arrays once, so each frame needs a single
+// batched projection call instead of thousands of individual ones.
+// flags: 0 = continue path, 1 = start new run (line or ring), 2 = start new polygon.
+function buildSkyPack(){
+  return {ra: [], dec: [], flags: [], labels: []};
+}
 
-  ctx.save();
-  ctx.fillStyle = `rgba(126, 182, 255, ${opacity})`;
-  ctx.strokeStyle = `rgba(153, 202, 255, ${Math.min(0.38, opacity * 2.1)})`;
-  ctx.lineWidth = 0.8;
+function pushSkyCoordinate(pack, coord, flag, label){
+  if(!Array.isArray(coord) || coord.length < 2) return;
+  const ra = normalizeRa(coord[0]);
+  const dec = Number(coord[1]);
+  if(!Number.isFinite(ra) || !Number.isFinite(dec)) return;
+  pack.ra.push(ra);
+  pack.dec.push(dec);
+  pack.flags.push(flag);
+  if(label !== undefined) pack.labels.push(label);
+}
 
-  forEachGeoGeometry(data, geometry => {
+function finalizeSkyPack(pack){
+  return {
+    ra: Float64Array.from(pack.ra),
+    dec: Float64Array.from(pack.dec),
+    flags: Uint8Array.from(pack.flags),
+    labels: pack.labels,
+    xy: new Float64Array(pack.ra.length * 2)
+  };
+}
+
+function packConstellationLines(geojson){
+  const pack = buildSkyPack();
+  forEachGeoGeometry(geojson, geometry => {
+    const lines =
+      geometry.type === "LineString" ? [geometry.coordinates] :
+      geometry.type === "MultiLineString" ? geometry.coordinates : [];
+    for(const line of lines){
+      line.forEach((coord, i) => pushSkyCoordinate(pack, coord, i === 0 ? 1 : 0));
+    }
+  });
+  return finalizeSkyPack(pack);
+}
+
+function packConstellationBounds(geojson){
+  const pack = buildSkyPack();
+  forEachGeoGeometry(geojson, geometry => {
     const polygons =
       geometry.type === "Polygon" ? [geometry.coordinates] :
       geometry.type === "MultiPolygon" ? geometry.coordinates : [];
-
     for(const polygon of polygons){
-      ctx.beginPath();
-      for(const ring of polygon) canvasPathFromCoordinates(ctx, ring, true);
-      ctx.fill("evenodd");
-      ctx.stroke();
+      polygon.forEach((ring, r) => {
+        ring.forEach((coord, i) => pushSkyCoordinate(pack, coord, i === 0 ? (r === 0 ? 2 : 1) : 0));
+      });
     }
   });
-  ctx.restore();
-}
-
-function drawConstellationLines(ctx){
-  const data = constellationState.lines;
-  if(!data) return;
-
-  ctx.save();
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-
-  // Soft translucent figure underlay.
-  ctx.strokeStyle = "rgba(101, 173, 255, 0.20)";
-  ctx.lineWidth = 5;
-  forEachGeoGeometry(data, geometry => {
-    const lines =
-      geometry.type === "LineString" ? [geometry.coordinates] :
-      geometry.type === "MultiLineString" ? geometry.coordinates : [];
-    for(const line of lines){
-      ctx.beginPath();
-      canvasPathFromCoordinates(ctx, line);
-      ctx.stroke();
-    }
-  });
-
-  // Crisp line layer.
-  ctx.strokeStyle = "rgba(184, 220, 255, 0.90)";
-  ctx.lineWidth = 1.35;
-  forEachGeoGeometry(data, geometry => {
-    const lines =
-      geometry.type === "LineString" ? [geometry.coordinates] :
-      geometry.type === "MultiLineString" ? geometry.coordinates : [];
-    for(const line of lines){
-      ctx.beginPath();
-      canvasPathFromCoordinates(ctx, line);
-      ctx.stroke();
-    }
-  });
-  ctx.restore();
+  return finalizeSkyPack(pack);
 }
 
 function constellationDisplayName(properties){
@@ -1512,56 +1471,185 @@ function constellationDisplayName(properties){
          "";
 }
 
-function drawConstellationNames(ctx){
-  const data = constellationState.names;
-  if(!data) return;
+function packConstellationNames(geojson){
+  const pack = buildSkyPack();
+  forEachGeoGeometry(geojson, (geometry, properties) => {
+    if(geometry.type !== "Point") return;
+    const name = constellationDisplayName(properties);
+    if(name) pushSkyCoordinate(pack, geometry.coordinates, 1, name);
+  });
+  return finalizeSkyPack(pack);
+}
+
+// Project every point of a pack into screen pixels in one call to Aladin's
+// WebAssembly core (the same path Aladin uses for its own catalogues).
+function projectSkyPack(pack){
+  const n = pack.ra.length;
+  const out = pack.xy;
+  const wasm = aladin.view && aladin.view.wasm;
+  if(constellationState.batchProjection !== false && wasm && typeof wasm.worldToScreenVec === "function"){
+    try{
+      const result = wasm.worldToScreenVec(pack.ra, pack.dec);
+      if(result && result.length === n * 2){
+        out.set(result);
+        // The batched call reports unprojectable points (e.g. behind the
+        // sphere) as exactly (0, 0), where world2pix returns null.
+        for(let i = 0; i < n * 2; i += 2){
+          if(out[i] === 0 && out[i + 1] === 0){ out[i] = NaN; out[i + 1] = NaN; }
+        }
+        return out;
+      }
+    }catch(error){
+      console.warn("Batched constellation projection unavailable, using per-point projection.", error);
+    }
+    constellationState.batchProjection = false;
+  }
+  for(let i = 0; i < n; i++){
+    let point = null;
+    try{ point = aladin.world2pix(pack.ra[i], pack.dec[i]); }catch(error){ point = null; }
+    out[2 * i] = point ? point[0] : NaN;
+    out[2 * i + 1] = point ? point[1] : NaN;
+  }
+  return out;
+}
+
+// Trace projected runs into a path, breaking at invalid points, points far off
+// screen, and large jumps (projection wrap-around).
+function traceSkyPack(path, pack, xy, W, H, closeRings){
+  const jumpLimit = Math.max(W, H) * 0.65;
+  const jumpLimitSq = jumpLimit * jumpLimit;
+  const n = pack.ra.length;
+  let hasPrevious = false, started = false;
+  let px = 0, py = 0;
+  for(let i = 0; i < n; i++){
+    if(pack.flags[i]){
+      if(closeRings && started) path.closePath();
+      hasPrevious = false;
+      started = false;
+    }
+    const x = xy[2 * i], y = xy[2 * i + 1];
+    if(!Number.isFinite(x) || !Number.isFinite(y) ||
+       x < -W || x > W * 2 || y < -H || y > H * 2){
+      hasPrevious = false;
+      started = false;
+      continue;
+    }
+    const dx = x - px, dy = y - py;
+    if(!hasPrevious || dx * dx + dy * dy > jumpLimitSq){
+      path.moveTo(x, y);
+      started = true;
+    }else{
+      path.lineTo(x, y);
+    }
+    hasPrevious = true;
+    px = x; py = y;
+  }
+  if(closeRings && started) path.closePath();
+}
+
+function drawConstellationBounds(ctx, opacity, W, H){
+  const pack = constellationState.boundsPack;
+  if(!pack) return;
+  const xy = projectSkyPack(pack);
+
+  ctx.save();
+  ctx.fillStyle = `rgba(126, 182, 255, ${opacity})`;
+  ctx.strokeStyle = `rgba(153, 202, 255, ${Math.min(0.38, opacity * 2.1)})`;
+  ctx.lineWidth = 0.8;
+
+  // Fill each polygon separately (even-odd per polygon), but reuse the single
+  // projection computed above.
+  const n = pack.ra.length;
+  let start = 0;
+  for(let i = 1; i <= n; i++){
+    if(i === n || pack.flags[i] === 2){
+      const sub = {
+        ra: pack.ra.subarray(start, i),
+        flags: pack.flags.subarray(start, i)
+      };
+      const path = new Path2D();
+      traceSkyPack(path, sub, xy.subarray(start * 2, i * 2), W, H, true);
+      ctx.fill(path, "evenodd");
+      ctx.stroke(path);
+      start = i;
+    }
+  }
+  ctx.restore();
+}
+
+function drawConstellationLines(ctx, W, H){
+  const pack = constellationState.linesPack;
+  if(!pack) return;
+  const xy = projectSkyPack(pack);
+  const path = new Path2D();
+  traceSkyPack(path, pack, xy, W, H, false);
+
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  // Soft translucent figure underlay.
+  ctx.strokeStyle = "rgba(101, 173, 255, 0.20)";
+  ctx.lineWidth = 5;
+  ctx.stroke(path);
+  // Crisp line layer.
+  ctx.strokeStyle = "rgba(184, 220, 255, 0.90)";
+  ctx.lineWidth = 1.35;
+  ctx.stroke(path);
+  ctx.restore();
+}
+
+function drawConstellationNames(ctx, W, H){
+  const pack = constellationState.namesPack;
+  if(!pack) return;
+  const xy = projectSkyPack(pack);
 
   ctx.save();
   ctx.font = "600 13px system-ui, -apple-system, Segoe UI, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.lineJoin = "round";
+  ctx.strokeStyle = "rgba(3, 9, 18, 0.92)";
+  ctx.fillStyle = "rgba(222, 237, 255, 0.94)";
+  ctx.lineWidth = 4;
 
-  forEachGeoGeometry(data, (geometry, properties) => {
-    if(geometry.type !== "Point") return;
-    const point = projectSkyCoordinate(geometry.coordinates);
-    if(!point) return;
-
-    const x = point[0], y = point[1];
-    const W = $("viewer").clientWidth, H = $("viewer").clientHeight;
-    if(x < -80 || x > W + 80 || y < -30 || y > H + 30) return;
-
-    const name = constellationDisplayName(properties);
-    if(!name) return;
-
-    ctx.strokeStyle = "rgba(3, 9, 18, 0.92)";
-    ctx.lineWidth = 4;
+  const n = pack.ra.length;
+  for(let i = 0; i < n; i++){
+    const x = xy[2 * i], y = xy[2 * i + 1];
+    if(!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    if(x < -80 || x > W + 80 || y < -30 || y > H + 30) continue;
+    const name = pack.labels[i];
     ctx.strokeText(name, x, y);
-    ctx.fillStyle = "rgba(222, 237, 255, 0.94)";
     ctx.fillText(name, x, y);
-  });
+  }
   ctx.restore();
+}
+
+function constellationViewKey(W, H, dpr){
+  const center = aladin.getRaDec ? aladin.getRaDec() : null;
+  const fov = aladin.getFov ? aladin.getFov() : null;
+  const rotation = aladin.getRotation ? aladin.getRotation() : 0;
+  return [
+    W, H, dpr,
+    center ? center[0] + "," + center[1] : "",
+    fov ? fov[0] + "," + fov[1] : "",
+    rotation,
+    $("showConstellationLines").checked,
+    $("showConstellationFigures").checked,
+    $("showConstellationNames").checked,
+    $("constellationOpacity").value,
+    constellationState.loaded
+  ].join("|");
 }
 
 function drawConstellations(force=false){
   const canvas = $("constellationCanvas");
-  if(!canvas || typeof aladin === "undefined") return;
+  if(!canvas || !aladin) return;
 
-  const W = $("viewer").clientWidth;
-  const H = $("viewer").clientHeight;
+  const viewer = $("viewer");
+  const W = viewer.clientWidth;
+  const H = viewer.clientHeight;
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const center = aladin.getRaDec ? aladin.getRaDec() : [0, 0];
-  const fov = aladin.getFov ? aladin.getFov() : [0, 0];
-  const key = [
-    W, H, dpr,
-    center ? center.map(v => Number(v).toFixed(4)).join(",") : "",
-    fov ? fov.map(v => Number(v).toFixed(4)).join(",") : "",
-    $("showConstellationLines").checked,
-    $("showConstellationFigures").checked,
-    $("showConstellationNames").checked,
-    $("constellationOpacity").value
-  ].join("|");
-
+  const key = constellationViewKey(W, H, dpr);
   if(!force && key === constellationState.redrawKey) return;
   constellationState.redrawKey = key;
 
@@ -1572,7 +1660,7 @@ function drawConstellations(force=false){
     canvas.style.height = `${H}px`;
   }
 
-  const ctx = canvas.getContext("2d", {alpha:true});
+  const ctx = constellationState.ctx || (constellationState.ctx = canvas.getContext("2d", {alpha:true}));
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, W, H);
 
@@ -1586,16 +1674,21 @@ function drawConstellations(force=false){
     return;
   }
 
+  const lines = $("showConstellationLines").checked;
+  const figures = $("showConstellationFigures").checked;
+  const names = $("showConstellationNames").checked;
   const opacity = Math.max(0.03, Math.min(0.35, Number($("constellationOpacity").value) / 100));
-  if($("showConstellationFigures").checked) drawConstellationBounds(ctx, opacity);
-  if($("showConstellationLines").checked) drawConstellationLines(ctx);
-  if($("showConstellationNames").checked) drawConstellationNames(ctx);
+  if(figures) drawConstellationBounds(ctx, opacity, W, H);
+  if(lines) drawConstellationLines(ctx, W, H);
+  if(names) drawConstellationNames(ctx, W, H);
 
   const active = [];
-  if($("showConstellationLines").checked) active.push("lines");
-  if($("showConstellationFigures").checked) active.push("figures");
-  if($("showConstellationNames").checked) active.push("names");
-  $("constellationStatus").textContent = active.join(" + ");
+  if(lines) active.push("lines");
+  if(figures) active.push("figures");
+  if(names) active.push("names");
+  const status = active.join(" + ");
+  const statusEl = $("constellationStatus");
+  if(statusEl.textContent !== status) statusEl.textContent = status;
 }
 
 function scheduleConstellationDraw(){
@@ -1605,6 +1698,31 @@ function scheduleConstellationDraw(){
     scheduleConstellationDraw.pending = false;
     drawConstellations(true);
   });
+}
+
+// Draw the overlay inside Aladin's own render frame: Aladin calls
+// view.drawAllOverlays() right after the WebGL sky is updated, on every frame
+// where the view moves (drag, inertia, zoom). Hooking there keeps the lines and
+// names locked to the stars with zero frame lag. A lightweight rAF watcher is a
+// safety net in case the internal hook is unavailable.
+function attachConstellationsToSkyFrame(){
+  const view = aladin && aladin.view;
+  if(view && typeof view.drawAllOverlays === "function" && !view.constellationHooked){
+    const drawAladinOverlays = view.drawAllOverlays;
+    view.drawAllOverlays = function(...args){
+      const result = drawAladinOverlays.apply(this, args);
+      try{ drawConstellations(); }catch(error){ console.error("Constellation draw failed:", error); }
+      return result;
+    };
+    view.constellationHooked = true;
+  }
+  const watch = () => {
+    if(constellationEnabled()){
+      try{ drawConstellations(); }catch(error){ console.error("Constellation draw failed:", error); }
+    }
+    requestAnimationFrame(watch);
+  };
+  requestAnimationFrame(watch);
 }
 
 function updateSkyAppearance(){
@@ -1663,6 +1781,7 @@ A.init.then(async () => {
     showGotoControl: true,
     cooFrame: "ICRS"
   });
+  attachConstellationsToSkyFrame();
 
   ["showConstellationLines","showConstellationFigures","showConstellationNames"].forEach(id => {
     $(id).addEventListener("change", () => {
