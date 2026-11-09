@@ -69,6 +69,7 @@ button:hover{background:#223955}
 .legend{font-size:12px;line-height:1.8}
 .swatch{display:inline-block;width:20px;height:10px;margin-right:7px;vertical-align:middle;border:2px solid}
 .note{font-size:11px;line-height:1.45;color:#aab6c6}
+kbd{display:inline-block;padding:0 5px;border:1px solid #4b5d75;border-bottom-width:2px;border-radius:4px;background:#111925;color:#e3ebf6;font:600 10px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}
 .badge{display:inline-block;border:1px solid #4b5d75;border-radius:999px;padding:2px 7px;font-size:11px;color:#cbd7e7}
 .small{font-size:11px;color:#aab6c6}
 .checklist{display:grid;gap:6px;margin-top:6px}
@@ -173,6 +174,7 @@ button:hover{background:#223955}
   <button id="fit" type="button">Fit complete OAG view</button>
   <button id="fitMain" type="button">Fit main camera(s)</button>
 </div>
+<p class="note">Rotate the sky: <kbd>Shift</kbd> + <kbd>→</kbd> clockwise, <kbd>Shift</kbd> + <kbd>←</kbd> counter-clockwise (hold to keep turning).</p>
 <div class="inlineCheck"><input id="showOag" type="checkbox"><label for="showOag" style="display:inline;margin:0;color:#edf3fb">Show OAG FOV / overlays</label></div>
 <label>Manual sky FOV (°)<input id="manualFov" type="number" min="0.001" step="0.01" placeholder="e.g., 0.60"></label>
 <button id="applyFov" type="button">Apply manual FOV</button>
@@ -205,7 +207,7 @@ button:hover{background:#223955}
   <div class="metric"><span>Overlay status</span><strong id="constellationStatus">Off</strong></div>
 </div>
 
-<p class="note">Constellation data is loaded once and rendered on a dedicated lightweight canvas. It does not alter the survey image or the camera, OAG, and mosaic overlays.</p>
+<p class="note">Constellation data is loaded once. Lines and names are drawn into the sky image itself, so they stay locked to the stars while you pan, zoom, or rotate; on the SIN globe they follow the sphere and stop at its edge. Figures use a lightweight overlay. None of this alters the camera, OAG, and mosaic overlays.</p>
 </section>
 
 <section id="appearanceSection">
@@ -1426,12 +1428,20 @@ function pushSkyCoordinate(pack, coord, flag, label){
 }
 
 function finalizeSkyPack(pack){
+  const n = pack.ra.length;
+  // Unit vectors (ICRS) for hemisphere visibility tests on the SIN globe.
+  const ux = new Float64Array(n), uy = new Float64Array(n), uz = new Float64Array(n);
+  for(let i = 0; i < n; i++){
+    const ra = pack.ra[i] * Math.PI / 180, dec = pack.dec[i] * Math.PI / 180, c = Math.cos(dec);
+    ux[i] = c * Math.cos(ra); uy[i] = c * Math.sin(ra); uz[i] = Math.sin(dec);
+  }
   return {
     ra: Float64Array.from(pack.ra),
     dec: Float64Array.from(pack.dec),
     flags: Uint8Array.from(pack.flags),
     labels: pack.labels,
-    xy: new Float64Array(pack.ra.length * 2)
+    ux, uy, uz,
+    xy: new Float64Array(n * 2)
   };
 }
 
@@ -1523,7 +1533,33 @@ function packConstellationNames(geojson){
 
 // Project every point of a pack into screen pixels in one call to Aladin's
 // WebAssembly core (the same path Aladin uses for its own catalogues).
+// On the SIN (orthographic) globe only the hemisphere facing the viewer is
+// visible: a point is shown only when it lies less than 90 degrees from the
+// view centre. Aladin still returns positions for far-side points once the
+// globe is zoomed out smaller than the screen, which would draw lines outside
+// the sphere, so they are hidden here explicitly.
+function cullFarHemisphere(pack, out){
+  const projection = aladin.getProjectionName ? aladin.getProjectionName() :
+    (aladin.view.projection && aladin.view.projection.label);
+  if(projection !== "SIN") return out;
+  const center = aladin.getRaDec();
+  const ra = center[0] * Math.PI / 180, dec = center[1] * Math.PI / 180, c = Math.cos(dec);
+  const cx = c * Math.cos(ra), cy = c * Math.sin(ra), cz = Math.sin(dec);
+  const n = pack.ra.length;
+  for(let i = 0; i < n; i++){
+    if(pack.ux[i] * cx + pack.uy[i] * cy + pack.uz[i] * cz <= 1e-6){
+      out[2 * i] = NaN;
+      out[2 * i + 1] = NaN;
+    }
+  }
+  return out;
+}
+
 function projectSkyPack(pack){
+  return cullFarHemisphere(pack, projectSkyPackRaw(pack));
+}
+
+function projectSkyPackRaw(pack){
   const n = pack.ra.length;
   const out = pack.xy;
   const wasm = aladin.view && aladin.view.wasm;
@@ -2046,7 +2082,9 @@ function drawGlobeLayer(){
 
   const wasm = view.wasm;
   const center = wasm.getCenter();
-  const geometryKey = [W, H, center[0], center[1], wasm.getFieldOfView(), wasm.getRotation(),
+  // The field of view stops at 180 degrees while the globe keeps shrinking as
+  // you zoom out further, so the zoom factor must be part of the key too.
+  const geometryKey = [W, H, center[0], center[1], wasm.getFieldOfView(), wasm.getZoomFactor(), wasm.getRotation(),
     view.projection && view.projection.id, showLines, showNames, constellationState.loaded].join("|");
 
   if(showNames && !globeLayer.atlas && constellationState.namesPack){
@@ -2157,6 +2195,7 @@ function constellationViewKey(W, H, dpr){
     W, H, dpr,
     center ? center[0] + "," + center[1] : "",
     fov ? fov[0] + "," + fov[1] : "",
+    aladin.view && aladin.view.zoomFactor,
     rotation,
     $("showConstellationLines").checked,
     $("showConstellationFigures").checked,
@@ -2307,6 +2346,54 @@ function boostPinchZoom(){
   }, {capture: true, passive: false});
 }
 
+// Keyboard rotation: Shift + Right Arrow turns the sky clockwise on screen,
+// Shift + Left Arrow counter-clockwise. A tap nudges the view; holding the
+// keys rotates it smoothly until released.
+const ROTATE_TAP_DEG = 3;
+const ROTATE_HOLD_DEG_PER_SEC = 60;
+const SCREEN_CLOCKWISE_SIGN = -1; // a positive Aladin rotation angle turns the view counter-clockwise on screen
+
+function installRotationShortcuts(){
+  const held = {dir: 0, last: 0, frame: 0};
+  const isEditable = el => el && (el.isContentEditable || /^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName));
+  const rotateBy = deg => {
+    const view = aladin && aladin.view;
+    if(!view) return;
+    const next = ((aladin.getRotation() + deg) % 360 + 360) % 360;
+    view.setRotation(next);
+  };
+  const tick = now => {
+    if(!held.dir){ held.frame = 0; return; }
+    const dt = Math.min(0.05, Math.max(0, (now - held.last) / 1000));
+    held.last = now;
+    rotateBy(held.dir * SCREEN_CLOCKWISE_SIGN * ROTATE_HOLD_DEG_PER_SEC * dt);
+    held.frame = requestAnimationFrame(tick);
+  };
+  const stop = () => {
+    held.dir = 0;
+    if(held.frame) cancelAnimationFrame(held.frame);
+    held.frame = 0;
+  };
+
+  window.addEventListener("keydown", event => {
+    if(event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+    if(!event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return;
+    if(isEditable(event.target)) return;
+    event.preventDefault();
+    const dir = event.key === "ArrowRight" ? 1 : -1; // 1 = clockwise
+    if(held.dir === dir) return; // ignore key auto-repeat while held
+    stop();
+    held.dir = dir;
+    rotateBy(dir * SCREEN_CLOCKWISE_SIGN * ROTATE_TAP_DEG);
+    held.last = performance.now();
+    held.frame = requestAnimationFrame(tick);
+  });
+  window.addEventListener("keyup", event => {
+    if(event.key === "ArrowRight" || event.key === "ArrowLeft" || event.key === "Shift") stop();
+  });
+  window.addEventListener("blur", stop);
+}
+
 function updateSkyAppearance(){
   const exposureStops = Math.max(-3, Math.min(3, Number($("skyExposure").value) || 0));
   const contrastPercent = Math.max(25, Math.min(250, Number($("skyContrast").value) || 100));
@@ -2365,6 +2452,7 @@ A.init.then(async () => {
   });
   attachConstellationsToSkyFrame();
   boostPinchZoom();
+  installRotationShortcuts();
 
   ["showConstellationLines","showConstellationFigures","showConstellationNames"].forEach(id => {
     $(id).addEventListener("change", () => {
