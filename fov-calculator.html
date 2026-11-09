@@ -174,7 +174,7 @@ kbd{display:inline-block;padding:0 5px;border:1px solid #4b5d75;border-bottom-wi
   <button id="fit" type="button">Fit complete OAG view</button>
   <button id="fitMain" type="button">Fit main camera(s)</button>
 </div>
-<p class="note">Rotate the sky: <kbd>Shift</kbd> + <kbd>→</kbd> clockwise, <kbd>Shift</kbd> + <kbd>←</kbd> counter-clockwise (hold to keep turning).</p>
+<p class="note">Rotate the sky: <kbd>Shift</kbd> + <kbd>→</kbd> clockwise, <kbd>Shift</kbd> + <kbd>←</kbd> counter-clockwise (hold to keep turning). Zoom: <kbd>fn</kbd> + <kbd>↑</kbd> in, <kbd>fn</kbd> + <kbd>↓</kbd> out (Page Up / Page Down).</p>
 <div class="inlineCheck"><input id="showOag" type="checkbox"><label for="showOag" style="display:inline;margin:0;color:#edf3fb">Show OAG FOV / overlays</label></div>
 <label>Manual sky FOV (°)<input id="manualFov" type="number" min="0.001" step="0.01" placeholder="e.g., 0.60"></label>
 <button id="applyFov" type="button">Apply manual FOV</button>
@@ -2390,6 +2390,29 @@ function installRotationShortcuts(){
   });
   window.addEventListener("keyup", event => {
     if(event.key === "ArrowRight" || event.key === "ArrowLeft" || event.key === "Shift") stop();
+  });
+
+  // Zoom: fn + Up / fn + Down on a Mac keyboard arrive as Page Up / Page Down
+  // (the fn key itself is never visible to a web page). Each press, including
+  // key auto-repeat while held, runs one of Aladin's smooth 1.4x zoom steps.
+  window.addEventListener("keydown", event => {
+    if(event.key !== "PageUp" && event.key !== "PageDown") return;
+    if(event.altKey || event.ctrlKey || event.metaKey) return;
+    if(isEditable(event.target)) return;
+    const view = aladin && aladin.view;
+    if(!view) return;
+    event.preventDefault();
+    const zoom = view.zoom;
+    if(zoom && typeof zoom.apply === "function"){
+      // Chain from where a running zoom is heading, so quick presses and
+      // key auto-repeat each add a full step instead of being swallowed.
+      const base = zoom.isZooming && zoom.finalZoom > 0 ? zoom.finalZoom : view.zoomFactor;
+      zoom.apply({stop: event.key === "PageUp" ? base / 1.4 : base * 1.4, duration: 200});
+    }else if(event.key === "PageUp"){
+      view.increaseZoom();
+    }else{
+      view.decreaseZoom();
+    }
   });
   window.addEventListener("blur", stop);
 }
