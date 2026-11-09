@@ -174,7 +174,7 @@ kbd{display:inline-block;padding:0 5px;border:1px solid #4b5d75;border-bottom-wi
   <button id="fit" type="button">Fit complete OAG view</button>
   <button id="fitMain" type="button">Fit main camera(s)</button>
 </div>
-<p class="note">Rotate the sky: <kbd>Shift</kbd> + <kbd>→</kbd> clockwise, <kbd>Shift</kbd> + <kbd>←</kbd> counter-clockwise (hold to keep turning). Zoom: <kbd>fn</kbd> + <kbd>↑</kbd> in, <kbd>fn</kbd> + <kbd>↓</kbd> out (Page Up / Page Down).</p>
+<p class="note">Keyboard: <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd> move the view. <kbd>Shift</kbd> + <kbd>→</kbd> rotates clockwise, <kbd>Shift</kbd> + <kbd>←</kbd> counter-clockwise. <kbd>fn</kbd> + <kbd>↑</kbd> zooms in, <kbd>fn</kbd> + <kbd>↓</kbd> zooms out (Page Up / Page Down). Hold any of them for smooth, steady motion.</p>
 <div class="inlineCheck"><input id="showOag" type="checkbox"><label for="showOag" style="display:inline;margin:0;color:#edf3fb">Show OAG FOV / overlays</label></div>
 <label>Manual sky FOV (°)<input id="manualFov" type="number" min="0.001" step="0.01" placeholder="e.g., 0.60"></label>
 <button id="applyFov" type="button">Apply manual FOV</button>
@@ -2346,75 +2346,127 @@ function boostPinchZoom(){
   }, {capture: true, passive: false});
 }
 
-// Keyboard rotation: Shift + Right Arrow turns the sky clockwise on screen,
-// Shift + Left Arrow counter-clockwise. A tap nudges the view; holding the
-// keys rotates it smoothly until released.
-const ROTATE_TAP_DEG = 3;
-const ROTATE_HOLD_DEG_PER_SEC = 60;
-const SCREEN_CLOCKWISE_SIGN = -1; // a positive Aladin rotation angle turns the view counter-clockwise on screen
+// Keyboard navigation. Every held key drives the view from a single
+// frame-synchronised loop at a constant rate, so motion starts on the very
+// first frame and never waits for the operating system's key auto-repeat.
+//   Arrow keys ............ pan up / down / left / right (screen directions)
+//   Shift + Right / Left .. rotate clockwise / counter-clockwise
+//   fn + Up / fn + Down ... zoom in / out (a Mac sends Page Up / Page Down)
+// A quick tap still moves for KEY_MIN_PRESS_MS at the same constant rate.
+const KEY_PAN_SCREENS_PER_SEC = 0.5;  // fraction of the shorter screen side per second
+const KEY_ROTATE_DEG_PER_SEC = 60;
+const KEY_ZOOM_FACTOR_PER_SEC = 3;    // zoom 3x per second
+const KEY_MIN_PRESS_MS = 120;
+const SCREEN_CLOCKWISE_SIGN = -1;     // a positive Aladin rotation angle turns the view counter-clockwise on screen
 
-function installRotationShortcuts(){
-  const held = {dir: 0, last: 0, frame: 0};
+function installKeyboardNavigation(){
   const isEditable = el => el && (el.isContentEditable || /^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName));
-  const rotateBy = deg => {
+  const active = new Map(); // action -> {pressedAt, releaseAt}
+  let frame = 0;
+  let last = 0;
+
+  const actionFor = event => {
+    if(event.altKey || event.ctrlKey || event.metaKey) return null;
+    switch(event.key){
+      case "PageUp": return "zoomIn";
+      case "PageDown": return "zoomOut";
+      case "ArrowLeft": return event.shiftKey ? "rotateCcw" : "panLeft";
+      case "ArrowRight": return event.shiftKey ? "rotateCw" : "panRight";
+      case "ArrowUp": return event.shiftKey ? null : "panUp";
+      case "ArrowDown": return event.shiftKey ? null : "panDown";
+      default: return null;
+    }
+  };
+  const actionsReleasedBy = key => ({
+    PageUp: ["zoomIn"],
+    PageDown: ["zoomOut"],
+    ArrowLeft: ["rotateCcw", "panLeft"],
+    ArrowRight: ["rotateCw", "panRight"],
+    ArrowUp: ["panUp"],
+    ArrowDown: ["panDown"],
+    Shift: ["rotateCw", "rotateCcw"]
+  })[key] || [];
+
+  const apply = (dt, now) => {
     const view = aladin && aladin.view;
-    if(!view) return;
-    const next = ((aladin.getRotation() + deg) % 360 + 360) % 360;
-    view.setRotation(next);
+    if(!view || dt <= 0) return;
+    const on = name => active.has(name);
+
+    // Zoom at a constant exponential rate (uniform perceived speed).
+    const zoomDir = (on("zoomOut") ? 1 : 0) - (on("zoomIn") ? 1 : 0);
+    if(zoomDir){
+      if(view.zoom && view.zoom.isZooming) view.zoom.stop = true; // cancel any eased zoom
+      view.zoomFactor = view.zoomFactor * Math.exp(zoomDir * Math.log(KEY_ZOOM_FACTOR_PER_SEC) * dt);
+    }
+
+    // Rotate at a constant angular rate.
+    const rotDir = (on("rotateCw") ? 1 : 0) - (on("rotateCcw") ? 1 : 0);
+    if(rotDir){
+      const next = ((aladin.getRotation() + rotDir * SCREEN_CLOCKWISE_SIGN * KEY_ROTATE_DEG_PER_SEC * dt) % 360 + 360) % 360;
+      view.setRotation(next);
+    }
+
+    // Pan in screen directions at a constant on-screen speed. goFromTo moves
+    // the sky exactly like dragging it from one screen point to another, so the
+    // view travels in the arrow's direction whatever the rotation or zoom.
+    let px = (on("panRight") ? 1 : 0) - (on("panLeft") ? 1 : 0);
+    let py = (on("panDown") ? 1 : 0) - (on("panUp") ? 1 : 0);
+    if((px || py) && view.wasm && typeof view.wasm.goFromTo === "function"){
+      if(px && py){ px *= Math.SQRT1_2; py *= Math.SQRT1_2; }
+      const step = KEY_PAN_SCREENS_PER_SEC * Math.min(view.width, view.height) * dt;
+      const cx = view.width / 2, cy = view.height / 2;
+      // Looking right/down means the sky slides left/up under the view.
+      view.wasm.goFromTo(cx, cy, cx - px * step, cy - py * step);
+      if(typeof view.updateCenter === "function") view.updateCenter();
+      // Same notification Aladin sends while dragging, so its coordinate
+      // readout and other listeners follow the keyboard pan.
+      if(view.viewCenter && view.aladinDiv){
+        view.aladinDiv.dispatchEvent(new CustomEvent("AL:position.changed", {detail: view.viewCenter}));
+      }
+    }
   };
+
   const tick = now => {
-    if(!held.dir){ held.frame = 0; return; }
-    const dt = Math.min(0.05, Math.max(0, (now - held.last) / 1000));
-    held.last = now;
-    rotateBy(held.dir * SCREEN_CLOCKWISE_SIGN * ROTATE_HOLD_DEG_PER_SEC * dt);
-    held.frame = requestAnimationFrame(tick);
+    const dt = Math.min(0.05, Math.max(0, (now - last) / 1000));
+    last = now;
+    apply(dt, now);
+    for(const [name, state] of active){
+      if(state.releaseAt && now >= state.releaseAt) active.delete(name);
+    }
+    frame = active.size ? requestAnimationFrame(tick) : 0;
   };
-  const stop = () => {
-    held.dir = 0;
-    if(held.frame) cancelAnimationFrame(held.frame);
-    held.frame = 0;
+  const start = () => {
+    if(frame) return;
+    last = performance.now();
+    frame = requestAnimationFrame(tick);
+  };
+  const release = (name, now) => {
+    const state = active.get(name);
+    if(!state) return;
+    const minEnd = state.pressedAt + KEY_MIN_PRESS_MS;
+    if(now >= minEnd) active.delete(name);
+    else state.releaseAt = minEnd;
   };
 
   window.addEventListener("keydown", event => {
-    if(event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
-    if(!event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return;
     if(isEditable(event.target)) return;
+    const action = actionFor(event);
+    if(!action) return;
     event.preventDefault();
-    const dir = event.key === "ArrowRight" ? 1 : -1; // 1 = clockwise
-    if(held.dir === dir) return; // ignore key auto-repeat while held
-    stop();
-    held.dir = dir;
-    rotateBy(dir * SCREEN_CLOCKWISE_SIGN * ROTATE_TAP_DEG);
-    held.last = performance.now();
-    held.frame = requestAnimationFrame(tick);
+    const existing = active.get(action);
+    if(existing){ existing.releaseAt = 0; return; } // held (auto-repeat): keep going
+    active.set(action, {pressedAt: performance.now(), releaseAt: 0});
+    start();
   });
   window.addEventListener("keyup", event => {
-    if(event.key === "ArrowRight" || event.key === "ArrowLeft" || event.key === "Shift") stop();
+    const now = performance.now();
+    for(const name of actionsReleasedBy(event.key)) release(name, now);
   });
-
-  // Zoom: fn + Up / fn + Down on a Mac keyboard arrive as Page Up / Page Down
-  // (the fn key itself is never visible to a web page). Each press, including
-  // key auto-repeat while held, runs one of Aladin's smooth 1.4x zoom steps.
-  window.addEventListener("keydown", event => {
-    if(event.key !== "PageUp" && event.key !== "PageDown") return;
-    if(event.altKey || event.ctrlKey || event.metaKey) return;
-    if(isEditable(event.target)) return;
-    const view = aladin && aladin.view;
-    if(!view) return;
-    event.preventDefault();
-    const zoom = view.zoom;
-    if(zoom && typeof zoom.apply === "function"){
-      // Chain from where a running zoom is heading, so quick presses and
-      // key auto-repeat each add a full step instead of being swallowed.
-      const base = zoom.isZooming && zoom.finalZoom > 0 ? zoom.finalZoom : view.zoomFactor;
-      zoom.apply({stop: event.key === "PageUp" ? base / 1.4 : base * 1.4, duration: 200});
-    }else if(event.key === "PageUp"){
-      view.increaseZoom();
-    }else{
-      view.decreaseZoom();
-    }
+  window.addEventListener("blur", () => {
+    active.clear();
+    if(frame) cancelAnimationFrame(frame);
+    frame = 0;
   });
-  window.addEventListener("blur", stop);
 }
 
 function updateSkyAppearance(){
@@ -2475,7 +2527,7 @@ A.init.then(async () => {
   });
   attachConstellationsToSkyFrame();
   boostPinchZoom();
-  installRotationShortcuts();
+  installKeyboardNavigation();
 
   ["showConstellationLines","showConstellationFigures","showConstellationNames"].forEach(id => {
     $(id).addEventListener("change", () => {
