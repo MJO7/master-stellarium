@@ -1375,6 +1375,7 @@ async function ensureConstellationData(){
     $("constellationStatus").textContent = "Ready";
     constellationState.redrawKey = "";
     drawConstellations(true);
+    requestSkyFrame();
   }catch(error){
     console.error("Constellation data failed to load:", error);
     constellationState.failed = true;
@@ -1441,10 +1442,49 @@ function packConstellationLines(geojson){
       geometry.type === "LineString" ? [geometry.coordinates] :
       geometry.type === "MultiLineString" ? geometry.coordinates : [];
     for(const line of lines){
-      line.forEach((coord, i) => pushSkyCoordinate(pack, coord, i === 0 ? 1 : 0));
+      pushGreatCircleLine(pack, line, CONSTELLATION_ARC_STEP_DEG);
     }
   });
   return finalizeSkyPack(pack);
+}
+
+// Constellation segments are great-circle arcs on the sky. Sampling them every
+// half degree lets every projection, and especially the SIN globe, bend the
+// lines exactly as the sphere does instead of drawing straight chords.
+const CONSTELLATION_ARC_STEP_DEG = 0.5;
+
+function skyUnitVector(coord){
+  const ra = Number(coord[0]) * Math.PI / 180, dec = Number(coord[1]) * Math.PI / 180;
+  const c = Math.cos(dec);
+  return [c * Math.cos(ra), c * Math.sin(ra), Math.sin(dec)];
+}
+
+function pushGreatCircleLine(pack, line, stepDeg){
+  const step = stepDeg * Math.PI / 180;
+  let prev = null;
+  line.forEach((coord, i) => {
+    if(!Array.isArray(coord) || coord.length < 2 || !Number.isFinite(Number(coord[0])) || !Number.isFinite(Number(coord[1]))){
+      prev = null;
+      return;
+    }
+    const v = skyUnitVector(coord);
+    if(prev){
+      const dot = Math.max(-1, Math.min(1, prev[0] * v[0] + prev[1] * v[1] + prev[2] * v[2]));
+      const angle = Math.acos(dot);
+      const pieces = Math.ceil(angle / step);
+      if(pieces > 1 && angle < Math.PI - 1e-6){
+        const sinA = Math.sin(angle);
+        for(let k = 1; k < pieces; k++){
+          const t = k / pieces;
+          const a = Math.sin((1 - t) * angle) / sinA, b = Math.sin(t * angle) / sinA;
+          const x = a * prev[0] + b * v[0], y = a * prev[1] + b * v[1], z = a * prev[2] + b * v[2];
+          pushSkyCoordinate(pack, [Math.atan2(y, x) * 180 / Math.PI, Math.asin(Math.max(-1, Math.min(1, z))) * 180 / Math.PI], 0);
+        }
+      }
+    }
+    pushSkyCoordinate(pack, coord, i === 0 || !prev ? 1 : 0);
+    prev = v;
+  });
 }
 
 function packConstellationBounds(geojson){
@@ -1624,6 +1664,491 @@ function drawConstellationNames(ctx, W, H){
   ctx.restore();
 }
 
+// ---------------------------------------------------------------------------
+// Globe constellation layer.
+//
+// Lines and names are drawn with WebGL straight into Aladin's own sky canvas,
+// immediately after Aladin renders each frame, so they are presented in the
+// very same picture as the stars and cannot trail behind them. Each figure
+// segment is densified along its true great-circle arc, so on the SIN
+// (orthographic globe) view the lines curve with the sphere and end cleanly at
+// the limb. If WebGL is unavailable the 2D canvas overlay is used instead.
+// ---------------------------------------------------------------------------
+const globeLayer = {
+  gl: null,
+  ok: false,
+  failed: false,
+  lineProgram: null,
+  textProgram: null,
+  lineVao: null,
+  lineBuffer: null,
+  textVao: null,
+  textBuffer: null,
+  atlasTexture: null,
+  atlas: null,
+  lineData: new Float32Array(0),
+  textData: new Float32Array(0),
+  drawnKey: ""
+};
+
+const GLOBE_LINE_VS = `#version 300 es
+in vec2 a_pos;
+in vec2 a_miter;
+in float a_side;
+uniform vec2 u_view;
+uniform float u_extent;
+out float v_dist;
+void main(){
+  vec2 p = a_pos + a_miter * (a_side * u_extent);
+  gl_Position = vec4(p.x / u_view.x * 2.0 - 1.0, 1.0 - p.y / u_view.y * 2.0, 0.0, 1.0);
+  v_dist = a_side * u_extent;
+}`;
+
+const GLOBE_LINE_FS = `#version 300 es
+precision mediump float;
+in float v_dist;
+uniform float u_half;
+uniform float u_dpr;
+uniform vec4 u_color;
+out vec4 outColor;
+void main(){
+  float a = clamp((u_half - abs(v_dist)) * u_dpr + 0.5, 0.0, 1.0) * u_color.a;
+  outColor = vec4(u_color.rgb * a, a);
+}`;
+
+const GLOBE_TEXT_VS = `#version 300 es
+in vec2 a_pos;
+in vec2 a_uv;
+uniform vec2 u_view;
+out vec2 v_uv;
+void main(){
+  gl_Position = vec4(a_pos.x / u_view.x * 2.0 - 1.0, 1.0 - a_pos.y / u_view.y * 2.0, 0.0, 1.0);
+  v_uv = a_uv;
+}`;
+
+const GLOBE_TEXT_FS = `#version 300 es
+precision mediump float;
+in vec2 v_uv;
+uniform sampler2D u_tex;
+out vec4 outColor;
+void main(){
+  outColor = texture(u_tex, v_uv);
+}`;
+
+function compileGlobeProgram(gl, vsSource, fsSource){
+  const compile = (type, source) => {
+    const shader = gl.createShader(type);
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    if(!gl.getShaderParameter(shader, gl.COMPILE_STATUS)){
+      throw new Error(gl.getShaderInfoLog(shader) || "Shader compile failed");
+    }
+    return shader;
+  };
+  const program = gl.createProgram();
+  gl.attachShader(program, compile(gl.VERTEX_SHADER, vsSource));
+  gl.attachShader(program, compile(gl.FRAGMENT_SHADER, fsSource));
+  gl.linkProgram(program);
+  if(!gl.getProgramParameter(program, gl.LINK_STATUS)){
+    throw new Error(gl.getProgramInfoLog(program) || "Program link failed");
+  }
+  const uniforms = {};
+  const count = gl.getProgramParameter(program, gl.ACTIVE_UNIFORMS);
+  for(let i = 0; i < count; i++){
+    const info = gl.getActiveUniform(program, i);
+    uniforms[info.name] = gl.getUniformLocation(program, info.name);
+  }
+  return {program, uniforms};
+}
+
+// Save every piece of WebGL state the layer touches so Aladin's renderer finds
+// the context exactly as it left it.
+function saveGlobeGlState(gl){
+  const prevActive = gl.getParameter(gl.ACTIVE_TEXTURE);
+  gl.activeTexture(gl.TEXTURE0);
+  return {
+    program: gl.getParameter(gl.CURRENT_PROGRAM),
+    vao: gl.getParameter(gl.VERTEX_ARRAY_BINDING),
+    arrayBuffer: gl.getParameter(gl.ARRAY_BUFFER_BINDING),
+    framebuffer: gl.getParameter(gl.DRAW_FRAMEBUFFER_BINDING),
+    viewport: gl.getParameter(gl.VIEWPORT),
+    blend: gl.isEnabled(gl.BLEND),
+    depth: gl.isEnabled(gl.DEPTH_TEST),
+    scissor: gl.isEnabled(gl.SCISSOR_TEST),
+    stencil: gl.isEnabled(gl.STENCIL_TEST),
+    cull: gl.isEnabled(gl.CULL_FACE),
+    blendSrcRgb: gl.getParameter(gl.BLEND_SRC_RGB),
+    blendDstRgb: gl.getParameter(gl.BLEND_DST_RGB),
+    blendSrcAlpha: gl.getParameter(gl.BLEND_SRC_ALPHA),
+    blendDstAlpha: gl.getParameter(gl.BLEND_DST_ALPHA),
+    blendEqRgb: gl.getParameter(gl.BLEND_EQUATION_RGB),
+    blendEqAlpha: gl.getParameter(gl.BLEND_EQUATION_ALPHA),
+    colorMask: gl.getParameter(gl.COLOR_WRITEMASK),
+    texture0: gl.getParameter(gl.TEXTURE_BINDING_2D),
+    sampler0: gl.getParameter(gl.SAMPLER_BINDING),
+    activeTexture: prevActive
+  };
+}
+
+function restoreGlobeGlState(gl, s){
+  gl.useProgram(s.program);
+  gl.bindVertexArray(s.vao);
+  gl.bindBuffer(gl.ARRAY_BUFFER, s.arrayBuffer);
+  gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, s.framebuffer);
+  gl.viewport(s.viewport[0], s.viewport[1], s.viewport[2], s.viewport[3]);
+  (s.blend ? gl.enable : gl.disable).call(gl, gl.BLEND);
+  (s.depth ? gl.enable : gl.disable).call(gl, gl.DEPTH_TEST);
+  (s.scissor ? gl.enable : gl.disable).call(gl, gl.SCISSOR_TEST);
+  (s.stencil ? gl.enable : gl.disable).call(gl, gl.STENCIL_TEST);
+  (s.cull ? gl.enable : gl.disable).call(gl, gl.CULL_FACE);
+  gl.blendFuncSeparate(s.blendSrcRgb, s.blendDstRgb, s.blendSrcAlpha, s.blendDstAlpha);
+  gl.blendEquationSeparate(s.blendEqRgb, s.blendEqAlpha);
+  gl.colorMask(s.colorMask[0], s.colorMask[1], s.colorMask[2], s.colorMask[3]);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, s.texture0);
+  gl.bindSampler(0, s.sampler0);
+  gl.activeTexture(s.activeTexture);
+}
+
+// Render every constellation name once into a texture atlas (with its dark
+// halo), so names cost one textured quad each per frame.
+function buildGlobeNameAtlas(gl){
+  const pack = constellationState.namesPack;
+  if(!pack) return null;
+  const scale = 2;
+  const font = `600 ${13 * scale}px system-ui, -apple-system, Segoe UI, sans-serif`;
+  const measure = document.createElement("canvas").getContext("2d");
+  measure.font = font;
+  const pad = 4 * scale;
+  const cellH = Math.ceil(13 * scale * 1.35) + pad * 2;
+  const maxW = 2048;
+  const entries = [];
+  let x = 0, y = 0;
+  for(const label of pack.labels){
+    const w = Math.ceil(measure.measureText(label).width) + pad * 2;
+    if(x + w > maxW){ x = 0; y += cellH; }
+    entries.push({x, y, w, h: cellH});
+    x += w;
+  }
+  const atlasH = y + cellH;
+  const canvas = document.createElement("canvas");
+  canvas.width = maxW;
+  canvas.height = atlasH;
+  const ctx = canvas.getContext("2d");
+  ctx.font = font;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = "rgba(3, 9, 18, 0.92)";
+  ctx.fillStyle = "rgba(222, 237, 255, 0.94)";
+  ctx.lineWidth = 4 * scale;
+  pack.labels.forEach((label, i) => {
+    const e = entries[i];
+    ctx.strokeText(label, e.x + e.w / 2, e.y + e.h / 2);
+    ctx.fillText(label, e.x + e.w / 2, e.y + e.h / 2);
+  });
+
+  const texture = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  const prevPremultiply = gl.getParameter(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL);
+  const prevFlip = gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL);
+  const prevAlign = gl.getParameter(gl.UNPACK_ALIGNMENT);
+  const prevUnpackBuffer = gl.getParameter(gl.PIXEL_UNPACK_BUFFER_BINDING);
+  gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, null);
+  gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, prevPremultiply);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, prevFlip);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, prevAlign);
+  gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, prevUnpackBuffer);
+
+  return {
+    texture,
+    entries: entries.map(e => ({
+      u0: e.x / maxW, v0: e.y / atlasH, u1: (e.x + e.w) / maxW, v1: (e.y + e.h) / atlasH,
+      w: e.w / scale, h: e.h / scale
+    }))
+  };
+}
+
+function initGlobeLayer(){
+  if(globeLayer.ok || globeLayer.failed) return globeLayer.ok;
+  const view = aladin && aladin.view;
+  const gl = view && (view.imageCtx || (view.imageCanvas && view.imageCanvas.getContext("webgl2")));
+  if(!gl || typeof gl.bindVertexArray !== "function" || !view.wasm || typeof view.wasm.worldToScreenVec !== "function"){
+    globeLayer.failed = true;
+    return false;
+  }
+  let saved = null;
+  try{
+    saved = saveGlobeGlState(gl);
+    const line = compileGlobeProgram(gl, GLOBE_LINE_VS, GLOBE_LINE_FS);
+    const text = compileGlobeProgram(gl, GLOBE_TEXT_VS, GLOBE_TEXT_FS);
+
+    const lineVao = gl.createVertexArray();
+    const lineBuffer = gl.createBuffer();
+    gl.bindVertexArray(lineVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, lineBuffer);
+    const lp = gl.getAttribLocation(line.program, "a_pos");
+    const lm = gl.getAttribLocation(line.program, "a_miter");
+    const ls = gl.getAttribLocation(line.program, "a_side");
+    gl.enableVertexAttribArray(lp); gl.vertexAttribPointer(lp, 2, gl.FLOAT, false, 20, 0);
+    gl.enableVertexAttribArray(lm); gl.vertexAttribPointer(lm, 2, gl.FLOAT, false, 20, 8);
+    gl.enableVertexAttribArray(ls); gl.vertexAttribPointer(ls, 1, gl.FLOAT, false, 20, 16);
+
+    const textVao = gl.createVertexArray();
+    const textBuffer = gl.createBuffer();
+    gl.bindVertexArray(textVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, textBuffer);
+    const tp = gl.getAttribLocation(text.program, "a_pos");
+    const tu = gl.getAttribLocation(text.program, "a_uv");
+    gl.enableVertexAttribArray(tp); gl.vertexAttribPointer(tp, 2, gl.FLOAT, false, 16, 0);
+    gl.enableVertexAttribArray(tu); gl.vertexAttribPointer(tu, 2, gl.FLOAT, false, 16, 8);
+
+    Object.assign(globeLayer, {gl, lineProgram: line, textProgram: text, lineVao, lineBuffer, textVao, textBuffer, ok: true});
+    watchSkyDrawCalls(gl);
+  }catch(error){
+    console.warn("Globe constellation layer unavailable; using the canvas overlay.", error);
+    globeLayer.failed = true;
+  }finally{
+    if(saved) restoreGlobeGlState(gl, saved);
+  }
+  return globeLayer.ok;
+}
+
+// Aladin repaints its sky canvas on some frames without reporting it through
+// isRendering(), so note any draw call it makes; the layer is drawn on top of
+// every frame Aladin actually painted.
+function watchSkyDrawCalls(gl){
+  for(const name of ["clear", "drawArrays", "drawElements", "drawArraysInstanced", "drawElementsInstanced", "blitFramebuffer"]){
+    const original = gl[name];
+    if(typeof original !== "function") continue;
+    gl[name] = function(...args){
+      if(!globeLayer.drawing) globeLayer.skyPainted = true;
+      return original.apply(this, args);
+    };
+  }
+}
+
+function growFloat32(buffer, needed){
+  if(buffer.length >= needed) return buffer;
+  return new Float32Array(Math.max(needed, buffer.length * 2, 4096));
+}
+
+// Turn projected polyline runs into miter-joined, anti-aliased ribbons.
+function buildGlobeLineVertices(pack, xy, W, H){
+  const n = pack.ra.length;
+  let data = globeLayer.lineData = growFloat32(globeLayer.lineData, n * 30);
+  let count = 0;
+  const jumpLimit = Math.max(W, H) * 0.65;
+  const jumpLimitSq = jumpLimit * jumpLimit;
+  const run = [];
+
+  const flush = () => {
+    const m = run.length;
+    if(m >= 2){
+      data = globeLayer.lineData = growFloat32(globeLayer.lineData, count + (m - 1) * 30);
+      // Unit normals per segment.
+      const nx = new Float32Array(m - 1), ny = new Float32Array(m - 1);
+      for(let k = 0; k < m - 1; k++){
+        const dx = xy[run[k + 1]] - xy[run[k]], dy = xy[run[k + 1] + 1] - xy[run[k] + 1];
+        const len = Math.hypot(dx, dy) || 1;
+        nx[k] = -dy / len; ny[k] = dx / len;
+      }
+      const mx = new Float32Array(m), my = new Float32Array(m);
+      for(let k = 0; k < m; k++){
+        if(k === 0){ mx[k] = nx[0]; my[k] = ny[0]; continue; }
+        if(k === m - 1){ mx[k] = nx[m - 2]; my[k] = ny[m - 2]; continue; }
+        let ax = nx[k - 1] + nx[k], ay = ny[k - 1] + ny[k];
+        const al = Math.hypot(ax, ay);
+        if(al < 1e-4){ mx[k] = nx[k]; my[k] = ny[k]; continue; }
+        ax /= al; ay /= al;
+        const scale = Math.min(3, 1 / Math.max(0.2, ax * nx[k] + ay * ny[k]));
+        mx[k] = ax * scale; my[k] = ay * scale;
+      }
+      for(let k = 0; k < m - 1; k++){
+        const ax = xy[run[k]], ay = xy[run[k] + 1], bx = xy[run[k + 1]], by = xy[run[k + 1] + 1];
+        const quad = [
+          ax, ay, mx[k], my[k], -1,
+          ax, ay, mx[k], my[k], 1,
+          bx, by, mx[k + 1], my[k + 1], -1,
+          ax, ay, mx[k], my[k], 1,
+          bx, by, mx[k + 1], my[k + 1], 1,
+          bx, by, mx[k + 1], my[k + 1], -1
+        ];
+        data.set(quad, count);
+        count += 30;
+      }
+    }
+    run.length = 0;
+  };
+
+  for(let i = 0; i < n; i++){
+    if(pack.flags[i]) flush();
+    const x = xy[2 * i], y = xy[2 * i + 1];
+    if(!Number.isFinite(x) || !Number.isFinite(y) || x < -W || x > W * 2 || y < -H || y > H * 2){
+      flush();
+      continue;
+    }
+    if(run.length){
+      const last = run[run.length - 1];
+      const dx = x - xy[last], dy = y - xy[last + 1];
+      const d2 = dx * dx + dy * dy;
+      if(d2 > jumpLimitSq){ flush(); }
+      else if(d2 < 0.0025) continue; // skip duplicate points
+    }
+    run.push(2 * i);
+  }
+  flush();
+  return count / 5;
+}
+
+function buildGlobeTextVertices(pack, xy, W, H){
+  const atlas = globeLayer.atlas;
+  const n = pack.ra.length;
+  const data = globeLayer.textData = growFloat32(globeLayer.textData, n * 24);
+  let count = 0;
+  for(let i = 0; i < n; i++){
+    const x = xy[2 * i], y = xy[2 * i + 1];
+    if(!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    if(x < -80 || x > W + 80 || y < -30 || y > H + 30) continue;
+    const e = atlas.entries[i];
+    const x0 = Math.round(x - e.w / 2), y0 = Math.round(y - e.h / 2);
+    const x1 = x0 + e.w, y1 = y0 + e.h;
+    data.set([
+      x0, y0, e.u0, e.v0,  x1, y0, e.u1, e.v0,  x0, y1, e.u0, e.v1,
+      x1, y0, e.u1, e.v0,  x1, y1, e.u1, e.v1,  x0, y1, e.u0, e.v1
+    ], count);
+    count += 24;
+  }
+  return count / 4;
+}
+
+// Called synchronously right after Aladin has rendered the sky for this frame.
+function drawGlobeLayer(){
+  if(!globeLayer.ok || !constellationState.loaded) return;
+  const showLines = $("showConstellationLines").checked;
+  const showNames = $("showConstellationNames").checked;
+  if(!showLines && !showNames) return;
+  const gl = globeLayer.gl;
+  if(gl.isContextLost()) return;
+
+  const view = aladin.view;
+  const W = view.width, H = view.height;
+  const canvas = gl.canvas;
+  const dpr = canvas.width / W;
+
+  const wasm = view.wasm;
+  const center = wasm.getCenter();
+  const geometryKey = [W, H, center[0], center[1], wasm.getFieldOfView(), wasm.getRotation(),
+    view.projection && view.projection.id, showLines, showNames, constellationState.loaded].join("|");
+
+  if(showNames && !globeLayer.atlas && constellationState.namesPack){
+    globeLayer.drawing = true;
+    try{ globeLayer.atlas = buildGlobeNameAtlas(gl); }finally{ globeLayer.drawing = false; }
+  }
+  const rebuild = geometryKey !== globeLayer.geometryKey;
+  let lineVerts = 0, textVerts = 0;
+  if(rebuild){
+    if(showLines && constellationState.linesPack){
+      const pack = constellationState.linesPack;
+      lineVerts = buildGlobeLineVertices(pack, projectSkyPack(pack), W, H);
+    }
+    if(showNames && globeLayer.atlas && constellationState.namesPack){
+      const pack = constellationState.namesPack;
+      textVerts = buildGlobeTextVertices(pack, projectSkyPack(pack), W, H);
+    }
+  }else{
+    lineVerts = globeLayer.lineVerts;
+    textVerts = globeLayer.textVerts;
+  }
+  if(!lineVerts && !textVerts){
+    globeLayer.geometryKey = geometryKey;
+    globeLayer.lineVerts = 0;
+    globeLayer.textVerts = 0;
+    return;
+  }
+
+  globeLayer.drawing = true;
+  const saved = saveGlobeGlState(gl);
+  try{
+    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.disable(gl.DEPTH_TEST);
+    gl.disable(gl.SCISSOR_TEST);
+    gl.disable(gl.STENCIL_TEST);
+    gl.disable(gl.CULL_FACE);
+    gl.colorMask(true, true, true, true);
+    gl.enable(gl.BLEND);
+    gl.blendEquation(gl.FUNC_ADD);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+
+    if(lineVerts){
+      const {program, uniforms} = globeLayer.lineProgram;
+      gl.useProgram(program);
+      gl.bindVertexArray(globeLayer.lineVao);
+      gl.bindBuffer(gl.ARRAY_BUFFER, globeLayer.lineBuffer);
+      if(rebuild) gl.bufferData(gl.ARRAY_BUFFER, globeLayer.lineData.subarray(0, lineVerts * 5), gl.DYNAMIC_DRAW);
+      gl.uniform2f(uniforms.u_view, W, H);
+      gl.uniform1f(uniforms.u_dpr, dpr);
+      // Soft translucent underlay, then the crisp line.
+      gl.uniform1f(uniforms.u_extent, 3.5);
+      gl.uniform1f(uniforms.u_half, 2.5);
+      gl.uniform4f(uniforms.u_color, 101 / 255, 173 / 255, 1, 0.20);
+      gl.drawArrays(gl.TRIANGLES, 0, lineVerts);
+      gl.uniform1f(uniforms.u_extent, 1.6);
+      gl.uniform1f(uniforms.u_half, 0.675);
+      gl.uniform4f(uniforms.u_color, 184 / 255, 220 / 255, 1, 0.90);
+      gl.drawArrays(gl.TRIANGLES, 0, lineVerts);
+    }
+
+    if(textVerts){
+      const {program, uniforms} = globeLayer.textProgram;
+      gl.useProgram(program);
+      gl.bindVertexArray(globeLayer.textVao);
+      gl.bindBuffer(gl.ARRAY_BUFFER, globeLayer.textBuffer);
+      if(rebuild) gl.bufferData(gl.ARRAY_BUFFER, globeLayer.textData.subarray(0, textVerts * 4), gl.DYNAMIC_DRAW);
+      gl.uniform2f(uniforms.u_view, W, H);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, globeLayer.atlas.texture);
+      gl.bindSampler(0, null);
+      gl.uniform1i(uniforms.u_tex, 0);
+      gl.drawArrays(gl.TRIANGLES, 0, textVerts);
+    }
+  }catch(error){
+    console.error("Globe constellation layer failed; using the canvas overlay.", error);
+    globeLayer.ok = false;
+    globeLayer.failed = true;
+    constellationState.redrawKey = "";
+  }finally{
+    restoreGlobeGlState(gl, saved);
+    globeLayer.drawing = false;
+  }
+  globeLayer.geometryKey = geometryKey;
+  globeLayer.lineVerts = lineVerts;
+  globeLayer.textVerts = textVerts;
+}
+
+// Ask Aladin to render one more frame (e.g. after toggling lines while the view
+// is still), so the globe layer appears without waiting for the next move.
+function requestSkyFrame(){
+  const view = aladin && aladin.view;
+  if(!view) return;
+  view.needRedraw = true;
+  try{
+    const wasm = view.wasm;
+    if(wasm && typeof wasm.setRotation === "function" && typeof wasm.getRotation === "function"){
+      wasm.setRotation(wasm.getRotation());
+    }
+  }catch(error){ /* best effort */ }
+}
+
 function constellationViewKey(W, H, dpr){
   const center = aladin.getRaDec ? aladin.getRaDec() : null;
   const fov = aladin.getFov ? aladin.getFov() : null;
@@ -1637,7 +2162,8 @@ function constellationViewKey(W, H, dpr){
     $("showConstellationFigures").checked,
     $("showConstellationNames").checked,
     $("constellationOpacity").value,
-    constellationState.loaded
+    constellationState.loaded,
+    globeLayer.ok
   ].join("|");
 }
 
@@ -1678,9 +2204,10 @@ function drawConstellations(force=false){
   const figures = $("showConstellationFigures").checked;
   const names = $("showConstellationNames").checked;
   const opacity = Math.max(0.03, Math.min(0.35, Number($("constellationOpacity").value) / 100));
+  const onGlobe = initGlobeLayer();
   if(figures) drawConstellationBounds(ctx, opacity, W, H);
-  if(lines) drawConstellationLines(ctx, W, H);
-  if(names) drawConstellationNames(ctx, W, H);
+  if(lines && !onGlobe) drawConstellationLines(ctx, W, H);
+  if(names && !onGlobe) drawConstellationNames(ctx, W, H);
 
   const active = [];
   if(lines) active.push("lines");
@@ -1692,6 +2219,7 @@ function drawConstellations(force=false){
 }
 
 function scheduleConstellationDraw(){
+  requestSkyFrame();
   if(scheduleConstellationDraw.pending) return;
   scheduleConstellationDraw.pending = true;
   requestAnimationFrame(() => {
@@ -1716,6 +2244,19 @@ function attachConstellationsToSkyFrame(){
     };
     view.constellationHooked = true;
   }
+  const wasm = view && view.wasm;
+  if(wasm && typeof wasm.update === "function" && !wasm.constellationHooked){
+    const updateSky = wasm.update;
+    wasm.update = function(...args){
+      globeLayer.skyPainted = false;
+      const result = updateSky.apply(this, args);
+      try{
+        if(globeLayer.ok && globeLayer.skyPainted) drawGlobeLayer();
+      }catch(error){ console.error("Globe constellation draw failed:", error); }
+      return result;
+    };
+    wasm.constellationHooked = true;
+  }
   const watch = () => {
     if(constellationEnabled()){
       try{ drawConstellations(); }catch(error){ console.error("Constellation draw failed:", error); }
@@ -1723,6 +2264,47 @@ function attachConstellationsToSkyFrame(){
     requestAnimationFrame(watch);
   };
   requestAnimationFrame(watch);
+}
+
+// Pinch zoom sensitivity. Touch pinches (iPhone/iPad) raise Aladin's
+// distance ratio to a power, and trackpad pinches (delivered as Ctrl+wheel
+// events) are scaled up, so a small pinch covers a much larger zoom range.
+// The ordinary mouse wheel is left unchanged.
+const TOUCH_PINCH_GAIN = 1.8;
+const TRACKPAD_PINCH_GAIN = 2.5;
+
+function boostPinchZoom(){
+  const view = aladin && aladin.view;
+  if(!view || view.pinchBoosted) return;
+  view.pinchBoosted = true;
+
+  const setZoomFactor = view.setZoomFactor;
+  if(typeof setZoomFactor === "function"){
+    view.setZoomFactor = function(zoomFactor, ...rest){
+      const pinch = this.pinchZoomParameters;
+      if(pinch && pinch.isPinching && pinch.initialZoomFactor > 0 && zoomFactor > 0){
+        const ratio = zoomFactor / pinch.initialZoomFactor;
+        zoomFactor = pinch.initialZoomFactor * Math.pow(ratio, TOUCH_PINCH_GAIN);
+      }
+      return setZoomFactor.call(this, zoomFactor, ...rest);
+    };
+  }
+
+  const boosted = new WeakSet();
+  $("aladin-lite-div").addEventListener("wheel", event => {
+    if(!event.ctrlKey || boosted.has(event) || !event.target) return;
+    event.stopPropagation();
+    event.preventDefault();
+    const amplified = new WheelEvent("wheel", {
+      bubbles: true, cancelable: true,
+      deltaX: event.deltaX, deltaY: event.deltaY * TRACKPAD_PINCH_GAIN, deltaZ: event.deltaZ,
+      deltaMode: event.deltaMode, clientX: event.clientX, clientY: event.clientY,
+      screenX: event.screenX, screenY: event.screenY,
+      ctrlKey: true, shiftKey: event.shiftKey, altKey: event.altKey, metaKey: event.metaKey
+    });
+    boosted.add(amplified);
+    event.target.dispatchEvent(amplified);
+  }, {capture: true, passive: false});
 }
 
 function updateSkyAppearance(){
@@ -1782,6 +2364,7 @@ A.init.then(async () => {
     cooFrame: "ICRS"
   });
   attachConstellationsToSkyFrame();
+  boostPinchZoom();
 
   ["showConstellationLines","showConstellationFigures","showConstellationNames"].forEach(id => {
     $(id).addEventListener("change", () => {
