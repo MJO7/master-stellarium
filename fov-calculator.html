@@ -2,9 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>FOV Calculator · Master Stellarium</title>
-<link rel="stylesheet" href="https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.css">
 <style>
 :root{color-scheme:dark}
 *{box-sizing:border-box}
@@ -34,6 +33,8 @@ aside{padding:14px;background:#0c121b;border-right:1px solid #293548;overflow-y:
 #constellationCanvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1}
 #overlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:2}
 #aladin-lite-div{z-index:0}
+.skyStatus{position:absolute;z-index:3;left:50%;bottom:42px;transform:translateX(-50%);max-width:min(460px,90%);padding:8px 12px;border:1px solid #4b5d75;border-radius:8px;background:#111925;color:#edf3fb;font-size:12px;text-align:center}
+.skyStatus[hidden]{display:none}
 section{border:1px solid #293548;border-radius:10px;padding:11px;margin-bottom:11px;background:#111925}
 section h2{font-size:14px;margin:0 0 9px}
 .collapsibleSection{padding:0;overflow:clip}
@@ -92,6 +93,41 @@ button:hover{background:#223955}
 @media(max-width:1180px){header{flex-wrap:wrap}.configInsight{order:3;max-width:none;flex-basis:100%}}
 @media(max-width:960px){.layout{grid-template-columns:1fr}.viewer{height:55vh;min-height:0}.layout{grid-template-rows:minmax(0,45vh) minmax(0,55vh)}aside{border-right:0;border-bottom:1px solid #293548}}
 @media(max-width:650px){.configInsight{grid-template-columns:repeat(3,minmax(0,1fr))}.insightItem:nth-child(3){border-right:0}.insightItem strong{white-space:normal}.compareActions{grid-template-columns:1fr}}
+.mobileJump{display:none}
+@media(max-width:960px){
+  html,body{height:auto;min-height:100%;overflow-x:hidden;overflow-y:auto}
+  body{min-height:100dvh}
+  header{padding:12px max(14px,env(safe-area-inset-right)) 12px max(14px,env(safe-area-inset-left))}
+  .layout{display:flex;flex-direction:column;flex:none;overflow:visible;min-height:0}
+  .viewer{order:0;height:55dvh;min-height:340px;max-height:650px;flex:none}
+  aside{order:1;overflow:visible;min-height:0;border-right:0;border-top:1px solid #293548;border-bottom:0;padding:14px max(14px,env(safe-area-inset-right)) max(24px,env(safe-area-inset-bottom)) max(14px,env(safe-area-inset-left));scroll-margin-top:12px}
+  .mobileJump{display:inline-flex;align-items:center;justify-content:center;width:auto;min-height:44px;padding:9px 14px;font-size:14px;font-weight:700;border:1px solid #4d7099;border-radius:999px;background:#183352;color:#f1f7ff}
+  .toControls{position:absolute;right:max(14px,env(safe-area-inset-right));bottom:max(46px,env(safe-area-inset-bottom));z-index:4;box-shadow:0 4px 18px #0009}
+  .toSky{margin:0 0 12px}
+  #aladin-lite-div .aladin-cooFrame{width:68px!important;max-width:68px!important}
+  #aladin-lite-div .aladin-location{max-width:min(50vw,220px)}
+  #aladin-lite-div .aladin-location input{max-width:100%;min-width:0}
+}
+@media(max-width:650px){
+  header{gap:8px;padding-top:max(10px,env(safe-area-inset-top))}
+  header h1{font-size:18px}
+  .headerText p{display:none}
+  .locationBox{width:100%;justify-content:space-between;gap:6px}
+  .locationBox button{min-height:44px;font-size:13px}
+  .locationStatus{max-width:100px;font-size:10px;line-height:1.2}
+  .configInsight{display:flex;grid-template-columns:none;gap:0;overflow-x:auto;overscroll-behavior-x:contain;max-width:100%;padding:4px;scrollbar-width:thin}
+  .insightItem{flex:0 0 130px;padding:4px 8px}
+  .insightItem strong{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .viewer{height:62dvh;min-height:360px;max-height:580px}
+  aside{padding-top:12px}
+  section{margin-bottom:10px}
+  .sectionToggle{min-height:48px}
+  aside input:not([type=checkbox]):not([type=range]),aside select,aside button{font-size:16px;min-height:44px}
+  aside label{grid-template-columns:minmax(0,1fr) minmax(100px,40%)}
+  .row2,.mosaicActions,.compareActions{grid-template-columns:1fr 1fr}
+  .homeLink{font-size:13px}
+}
+@media(max-width:650px) and (orientation:landscape){.viewer{height:70dvh;min-height:260px}.configInsight{display:none}}
 </style>
 </head>
 <body>
@@ -122,10 +158,9 @@ button:hover{background:#223955}
 <div class="row"><input id="target" placeholder="e.g., M 106"><button id="goto" type="button">Go</button></div>
 <label>Survey
   <select id="survey">
-    <option value="">Select a sky survey…</option>
-    <option value="P/DSS2/color">DSS2 color</option>
-    <option value="P/PanSTARRS/DR1/color-z-zg-g">Pan-STARRS</option>
-    <option value="P/2MASS/color">2MASS</option>
+    <option value="https://cdn.skies.esac.esa.int/DSSColor">DSS2 color</option>
+    <option value="https://stpubdata.s3.us-east-1.amazonaws.com/mast/skybackgrounds/PanSTARRS">Pan-STARRS</option>
+    <option value="https://hips.china-vo.org/m/CDS_P_2MASS_color">2MASS</option>
   </select>
 </label>
 <div class="row2">
@@ -376,12 +411,22 @@ button:hover{background:#223955}
 <div id="aladin-lite-div"></div>
 <canvas id="constellationCanvas"></canvas>
 <svg id="overlay" preserveAspectRatio="none"><g id="graphics"></g></svg>
+<div id="skyStatus" class="skyStatus" role="status" hidden></div>
+<button id="jumpToControls" class="mobileJump toControls" type="button" aria-label="Jump to telescope and camera controls">Controls ↓</button>
 </main>
 </div>
 
-<script src="https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.js"></script>
-<script>
+<script type="module">
+import A from "./vendor/aladin.js";
 const $ = id => document.getElementById(id);
+const controlsJump = document.createElement("button");
+controlsJump.id = "jumpToSky";
+controlsJump.className = "mobileJump toSky";
+controlsJump.type = "button";
+controlsJump.textContent = "↑ Back to sky";
+$("viewer").previousElementSibling.prepend(controlsJump);
+$("jumpToControls").addEventListener("click", () => document.querySelector("aside").scrollIntoView({behavior:"smooth",block:"start"}));
+controlsJump.addEventListener("click", () => $("viewer").scrollIntoView({behavior:"smooth",block:"start"}));
 
 function makeSidebarSectionsCollapsible(){
   document.querySelectorAll("aside > section").forEach((section, index) => {
@@ -1575,9 +1620,34 @@ function updateSkyAppearance(){
     `${exposureStops.toFixed(1)} EV · ${Math.round(contrastPercent)}% · ${Math.round(saturationPercent)}%`;
 }
 
-A.init.then(() => {
+const DSS_PRIMARY = "https://cdn.skies.esac.esa.int/DSSColor";
+const DSS_BACKUP = "https://stpubdata.s3.us-east-1.amazonaws.com/mast/skybackgrounds/DSSColor";
+function skyStatus(message){
+  $("skyStatus").textContent = message;
+  $("skyStatus").hidden = !message;
+}
+async function resolveSurvey(selected){
+  const candidates = selected === DSS_PRIMARY ? [DSS_PRIMARY, DSS_BACKUP] : [selected, DSS_PRIMARY, DSS_BACKUP];
+  for(const url of candidates){
+    try{
+      const response = await fetch(`${url}/properties`, {signal:AbortSignal.timeout(4000)});
+      if(!response.ok) continue;
+      if(url !== selected){
+        if(selected !== DSS_PRIMARY) $("survey").value = DSS_PRIMARY;
+        skyStatus(`The selected survey is unavailable. Showing DSS2 color from a working mirror.`);
+      }else skyStatus("");
+      return url;
+    }catch(error){
+      console.warn("Sky survey unavailable:", url, error);
+    }
+  }
+  throw new Error("Sky survey servers are unavailable. Please reload later.");
+}
+
+A.init.then(async () => {
+  const initialSurvey = await resolveSurvey($("survey").value);
   aladin = A.aladin("#aladin-lite-div", {
-    survey: $("survey").value || "P/DSS2/color",
+    survey: initialSurvey,
     target: $("target").value || "0 +0",
     fov: +$("manualFov").value || 0.6,
     showReticle: false,
@@ -1664,8 +1734,15 @@ A.init.then(() => {
     setTimeout(fitAll, 700);
   });
   $("target").addEventListener("keydown", e => { if(e.key === "Enter") $("goto").click(); });
-  $("survey").addEventListener("change", () => {
-    if($("survey").value) aladin.setImageSurvey($("survey").value);
+  let surveyRequest = 0;
+  $("survey").addEventListener("change", async () => {
+    const request = ++surveyRequest;
+    try{
+      const survey = await resolveSurvey($("survey").value);
+      if(request === surveyRequest) aladin.setImageSurvey(survey);
+    }catch(error){
+      if(request === surveyRequest) skyStatus(error.message);
+    }
   });
 
   $("fit").addEventListener("click", fitAll);
@@ -1875,18 +1952,16 @@ A.init.then(() => {
     }
   });
 
-  // Completely disable two-finger scrolling / wheel zoom over the sky viewer.
-  // The left settings panel remains independently scrollable.
+  // Keep desktop wheel scrolling on the settings page while touch devices
+  // can pan and pinch the sky with Aladin's native gestures.
   const viewer = $("viewer");
   const blockViewerScroll = (event) => {
     event.preventDefault();
     event.stopPropagation();
   };
-  viewer.addEventListener("wheel", blockViewerScroll, {passive:false});
-  viewer.addEventListener("touchmove", blockViewerScroll, {passive:false});
-  viewer.addEventListener("gesturestart", blockViewerScroll, {passive:false});
-  viewer.addEventListener("gesturechange", blockViewerScroll, {passive:false});
-  viewer.addEventListener("gestureend", blockViewerScroll, {passive:false});
+  if(matchMedia("(hover: hover) and (pointer: fine)").matches){
+    viewer.addEventListener("wheel", blockViewerScroll, {passive:false});
+  }
 
   window.addEventListener("resize", () => {
     update();
@@ -1905,6 +1980,9 @@ A.init.then(() => {
   setTimeout(() => {
     update();
   }, 1200);
+}).catch(error => {
+  console.error("Sky viewer failed to start:", error);
+  skyStatus(error.message || "The sky viewer could not start. Please reload.");
 });
 </script>
 </body>

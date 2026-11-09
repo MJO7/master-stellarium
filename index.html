@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="description" content="Astronomy planning calculators for field of view and narrowband filter performance.">
   <title>Astronomy Calculators</title>
   <style>
@@ -168,9 +168,11 @@
     .card:hover .button span { transform: translateX(4px); }
 
     @media (max-width: 680px) {
-      main { padding: 40px 0; }
+      main { padding: max(32px, env(safe-area-inset-top)) 0 max(32px, env(safe-area-inset-bottom)); }
       .cards { grid-template-columns: 1fr; }
-      .card { min-height: 220px; }
+      .card { min-height: 190px; padding:22px; }
+      header { margin-bottom:24px; }
+      .icon { margin-bottom:18px; }
     }
   </style>
 </head>
