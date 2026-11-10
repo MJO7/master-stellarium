@@ -45,8 +45,29 @@ aside{padding:14px;background:#0c121b;border-right:1px solid #293548;overflow-y:
 .groundToggle:hover{background:#1c2b42}
 .groundToggle[aria-pressed="true"]{background:#1d4a2c;border-color:#57c27c;color:#eafff0}
 .groundToggle:focus-visible{outline:2px solid #66d9ff;outline-offset:2px}
-.groundStatus{position:absolute;z-index:3;left:236px;bottom:6px;max-width:calc(100% - 340px);padding:5px 10px;border:1px solid #2e3a4d;border-radius:8px;background:#0b111acc;color:#dbe6f4;font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;pointer-events:none}
-.groundStatus[hidden]{display:none}
+.groundDock{position:absolute;z-index:3;left:236px;bottom:6px;max-width:calc(100% - 340px);display:flex;flex-direction:column;align-items:flex-start;gap:6px;pointer-events:none}
+.groundDock[hidden]{display:none}
+.timeBar{display:flex;align-items:center;gap:6px;padding:5px;border:1px solid #33435a;border-radius:13px;background:#0b111ae6;box-shadow:0 4px 16px #0008;pointer-events:auto}
+.timeBtn{display:inline-flex;align-items:center;justify-content:center;gap:6px;width:46px;height:44px;padding:0;border:1px solid #3d4f69;border-radius:9px;background:#18263a;color:#e8f0fb;font-size:13px;font-weight:700;transition:transform .08s ease,background .12s ease,border-color .12s ease}
+.timeBtn:hover:not(:disabled){background:#24405f;border-color:#6aa7e6}
+.timeBtn:active:not(:disabled){transform:scale(.93)}
+.timeBtn:focus-visible{outline:2px solid #66d9ff;outline-offset:2px}
+.timeBtn:disabled{opacity:.38;cursor:default}
+.timeMain{width:104px;background:#1d4a2c;border-color:#57c27c;color:#eafff0}
+.timeMain:hover:not(:disabled){background:#27623b;border-color:#7fe3a3}
+.timeMain[aria-pressed="true"]{background:#5c3f0d;border-color:#f0b54a;color:#ffe7b3}
+.timeMain[aria-pressed="true"]:hover{background:#73500f;border-color:#ffd27a}
+.timeNow{width:56px}
+.timeRate{min-width:84px;padding:0 8px 0 4px;color:#cfe0f5;font:600 12px/1.2 system-ui,-apple-system,Segoe UI,sans-serif;white-space:nowrap}
+.timeRate.isPaused{color:#ffd27a}
+.subHead{margin:12px 0 6px;font-size:12px;color:#cbd5e3;letter-spacing:.02em}
+.bodyList{display:grid;gap:4px}
+.bodyRow{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;text-align:left;font-size:12px}
+.bodyRow .bodyName{font-weight:700;color:#edf3fb}
+.bodyRow .bodyWhere{color:#b9c7da;text-align:right;font-variant-numeric:tabular-nums}
+.bodyRow.isDown{background:#121b29}
+.bodyRow.isDown .bodyName,.bodyRow.isDown .bodyWhere{color:#77859a}
+.groundStatus{max-width:100%;padding:5px 10px;border:1px solid #2e3a4d;border-radius:8px;background:#0b111acc;color:#dbe6f4;font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;pointer-events:none}
 .groundActive .aladin-projection-control{display:none}
 .lookRow{display:grid;grid-template-columns:repeat(4,1fr) 1.6fr;gap:6px;margin:9px 0 7px}
 .lookRow button{padding-inline:4px}
@@ -147,7 +168,7 @@ kbd{display:inline-block;padding:0 5px;border:1px solid #4b5d75;border-bottom-wi
   .row2,.mosaicActions,.compareActions{grid-template-columns:1fr 1fr}
   .homeLink{font-size:13px}
 }
-@media(max-width:960px){.groundStatus{left:8px;bottom:44px;max-width:calc(100% - 150px);font-size:10.5px}.groundToggle{min-height:40px}}
+@media(max-width:960px){.groundDock{left:8px;bottom:44px;max-width:calc(100% - 150px)}.groundStatus{font-size:10.5px}.groundToggle{min-height:40px}.timeRate{display:none}.timeMain{width:58px}.timeMain span{display:none}.timeNow{width:50px}}
 @media(max-width:650px) and (orientation:landscape){.viewer{height:70dvh;min-height:260px}.configInsight{display:none}}
 </style>
 </head>
@@ -251,6 +272,7 @@ kbd{display:inline-block;padding:0 5px;border:1px solid #4b5d75;border-bottom-wi
     <option value="600">10 minutes / second</option>
     <option value="3600">1 hour / second</option>
     <option value="-60">Reverse 1 min / s</option>
+    <option value="-600">Reverse 10 min / s</option>
     <option value="-3600">Reverse 1 h / s</option>
   </select>
 </div>
@@ -280,9 +302,17 @@ kbd{display:inline-block;padding:0 5px;border:1px solid #4b5d75;border-bottom-wi
   <label for="groundHorizonLine" style="display:inline;margin:0;color:#edf3fb">True horizon line (0° altitude)</label>
 </div>
 <div class="inlineCheck">
-  <input id="groundDaylight" type="checkbox">
-  <label for="groundDaylight" style="display:inline;margin:0;color:#edf3fb">Daylight and Sun (hides stars by day)</label>
+  <input id="groundBodiesOn" type="checkbox">
+  <label for="groundBodiesOn" style="display:inline;margin:0;color:#edf3fb">Sun, Moon and planets</label>
 </div>
+<div class="inlineCheck">
+  <input id="groundDaylight" type="checkbox">
+  <label for="groundDaylight" style="display:inline;margin:0;color:#edf3fb">Daylight sky (hides stars by day)</label>
+</div>
+
+<h3 class="subHead">Solar system right now</h3>
+<div id="groundBodies" class="bodyList" aria-label="Sun, Moon and planets: click to face one"></div>
+<p class="note">Click a row to turn toward it. The time buttons on the sky (or <kbd>Space</kbd>) pause and resume time.</p>
 
 <div class="metrics" style="margin-top:9px">
   <div class="metric"><span>Location</span><strong id="groundLocation">—</strong></div>
@@ -290,7 +320,7 @@ kbd{display:inline-block;padding:0 5px;border:1px solid #4b5d75;border-bottom-wi
   <div class="metric"><span>Local sidereal time</span><strong id="groundLst">—</strong></div>
   <div class="metric"><span>Sun altitude</span><strong id="groundSun">—</strong></div>
 </div>
-<p class="note">Positions use your location and the time above (accurate to about 0.01°). The landscape is illustrative; the true horizon is at 0° altitude. Camera, OAG and mosaic frames stay true to the sky and turn with it.</p>
+<p class="note">Stars use your location and the time above (accurate to about 0.01°); planets and the Moon are good to about 0.03°. The Sun and Moon are drawn at true size, but never smaller than a few pixels. The landscape is illustrative; the true horizon is at 0° altitude. Camera, OAG and mosaic frames stay true to the sky and turn with it.</p>
 </section>
 
 <section id="appearanceSection">
@@ -503,7 +533,16 @@ kbd{display:inline-block;padding:0 5px;border:1px solid #4b5d75;border-bottom-wi
 <canvas id="constellationCanvas"></canvas>
 <svg id="overlay" preserveAspectRatio="none"><g id="graphics"></g></svg>
 <button id="groundToggle" class="groundToggle" type="button" aria-pressed="false" title="Stand on the ground and look up at the sky">Ground view</button>
-<div id="groundStatus" class="groundStatus" role="status" hidden></div>
+<div id="groundDock" class="groundDock" hidden>
+  <div class="timeBar" role="group" aria-label="Time controls">
+    <button id="timeSlower" class="timeBtn" type="button" title="Slower, then backwards" aria-label="Slower or reverse time"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M11.5 5.2v13.6a.8.8 0 0 1-1.25.66L1.4 12.66a.8.8 0 0 1 0-1.32l8.85-6.8a.8.8 0 0 1 1.25.66zm11 0v13.6a.8.8 0 0 1-1.25.66l-8.85-6.8a.8.8 0 0 1 0-1.32l8.85-6.8a.8.8 0 0 1 1.25.66z" fill="currentColor"/></svg></button>
+    <button id="timePause" class="timeBtn timeMain" type="button" aria-pressed="false" aria-label="Pause time" title="Pause time (Space)"></button>
+    <button id="timeFaster" class="timeBtn" type="button" title="Faster" aria-label="Speed up time"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12.5 5.2v13.6a.8.8 0 0 0 1.25.66l8.85-6.8a.8.8 0 0 0 0-1.32l-8.85-6.8a.8.8 0 0 0-1.25.66zm-11 0v13.6a.8.8 0 0 0 1.25.66l8.85-6.8a.8.8 0 0 0 0-1.32l-8.85-6.8a.8.8 0 0 0-1.25.66z" fill="currentColor"/></svg></button>
+    <button id="timeNow" class="timeBtn timeNow" type="button" title="Jump to the current time at real-time speed" aria-label="Jump to now">Now</button>
+    <span id="timeRate" class="timeRate" aria-live="polite">Real time</span>
+  </div>
+  <div id="groundStatus" class="groundStatus" role="status"></div>
+</div>
 <div id="skyStatus" class="skyStatus" role="status" hidden></div>
 <button id="jumpToControls" class="mobileJump toControls" type="button" aria-label="Jump to telescope and camera controls">Controls ↓</button>
 </main>
@@ -2498,7 +2537,10 @@ const groundView = {
   frameMs: Date.now(),
   matrix: null,       // horizon -> J2000 for frameMs
   degPerPx: 0,        // true scale at the view centre
-  options: {cardinals: true, horizonLine: false, treeline: true, daylight: false},
+  options: {cardinals: true, horizonLine: false, treeline: true, daylight: false, bodies: true},
+  bodyAtlas: null,
+  bodyDotData: new Float32Array(7 * 24),
+  bodyLabelData: new Float32Array(9 * 24),
   program: null,
   vao: null,
   cardinalVao: null,
@@ -2531,6 +2573,12 @@ uniform float u_day;     // 0 night .. 1 full daylight (daylight option only)
 uniform float u_light;   // ground brightness
 uniform vec3 u_sun;      // direction of the Sun, horizon frame
 uniform float u_sunDisc;
+uniform float u_sunRadius;  // radians
+uniform vec3 u_moon;        // direction of the Moon, horizon frame
+uniform float u_moonOn;
+uniform float u_moonRadius; // radians
+uniform float u_moonPhase;  // Sun-Moon-observer angle, radians (0 = full)
+uniform float u_moonLit;    // illuminated fraction
 out vec4 outColor;
 
 float hash(vec2 cell){
@@ -2644,10 +2692,36 @@ void main(){
     skyColor = mix(horizon, zenith, pow(up, 0.45));
     skyAlpha = u_day * 0.96;
     float sunAngle = acos(clamp(dot(d, u_sun), -1.0, 1.0));
-    float glow = (exp(-sunAngle * sunAngle * 900.0) * 0.55 + exp(-sunAngle * sunAngle * 60.0) * 0.16) * u_sunDisc;
-    float disc = (1.0 - smoothstep(0.0044, 0.0052, sunAngle)) * u_sunDisc;
+    float sunUnits = sunAngle / u_sunRadius;
+    float glow = (exp(-sunUnits * sunUnits * 0.045) * 0.50 + exp(-sunUnits * sunUnits * 0.004) * 0.14) * u_sunDisc;
+    float disc = (1.0 - smoothstep(0.93, 1.07, sunUnits)) * u_sunDisc;
     skyColor = mix(skyColor + vec3(1.0, 0.85, 0.60) * glow, vec3(1.0, 0.98, 0.92), disc);
     skyAlpha = max(skyAlpha, max(disc, glow * 0.8));
+  }
+
+  // The Moon, shaded as a sphere lit from the Sun's side so its phase and the
+  // tilt of its bright limb are right for the place and time.
+  if(u_moonOn > 0.5){
+    float moonAngle = acos(clamp(dot(d, u_moon), -1.0, 1.0));
+    float moonUnits = moonAngle / u_moonRadius;
+    if(moonUnits < 6.0){
+      vec3 sunward = normalize(u_sun - dot(u_sun, u_moon) * u_moon + vec3(1e-7, 0.0, 0.0));
+      vec3 across = cross(u_moon, sunward);
+      float scale = 1.0 / sin(u_moonRadius);
+      float mx = dot(d, sunward) * scale;
+      float my = dot(d, across) * scale;
+      float rr = mx * mx + my * my;
+      float mz = sqrt(max(0.0, 1.0 - rr));
+      float lit = smoothstep(-0.07, 0.07, mx * sin(u_moonPhase) + mz * cos(u_moonPhase));
+      float maria = 0.84 + 0.16 * vnoise(vec2(mx, my) * 2.6 + 7.0);
+      vec3 darkSide = mix(vec3(0.070, 0.080, 0.100), skyColor, clamp(u_day, 0.0, 1.0));
+      vec3 moonColor = mix(darkSide, vec3(0.96, 0.94, 0.87) * maria, lit);
+      float pixel = radians(altWidth) / u_moonRadius;
+      float moonDisc = 1.0 - smoothstep(1.0 - pixel, 1.0 + pixel, sqrt(rr));
+      float halo = exp(-max(moonUnits - 1.0, 0.0) * 1.3) * 0.20 * u_moonLit * (1.0 - moonDisc);
+      skyColor = mix(skyColor + vec3(0.80, 0.86, 1.00) * halo, moonColor, moonDisc);
+      skyAlpha = max(skyAlpha, max(moonDisc, halo * 0.8));
+    }
   }
 
   vec3 rgb = skyColor * skyAlpha * (1.0 - ground) + groundColor * ground;
@@ -2874,6 +2948,87 @@ function buildCardinalAtlas(gl){
   return {texture: createCanvasTexture(gl, canvas), entries};
 }
 
+// Sun, Moon and planets: colours for the planet dots and the name labels.
+const BODY_ORDER = ["sun", "moon", "mercury", "venus", "mars", "jupiter", "saturn", "uranus", "neptune"];
+const BODY_STYLES = {
+  sun: {label: "#ffd98a"},
+  moon: {label: "#e6e8f2"},
+  mercury: {dot: [214, 207, 196]},
+  venus: {dot: [255, 247, 220]},
+  mars: {dot: [255, 157, 115]},
+  jupiter: {dot: [255, 228, 184]},
+  saturn: {dot: [244, 226, 168]},
+  uranus: {dot: [169, 236, 236]},
+  neptune: {dot: [147, 180, 255]}
+};
+
+// One texture holding a soft glowing dot per planet and a name label per body.
+function buildBodyAtlas(gl){
+  const scale = 2;
+  const dot = 64, labelW = 78 * scale, labelH = 22 * scale;
+  const planets = BODY_ORDER.filter(id => BODY_STYLES[id].dot);
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(planets.length * dot, BODY_ORDER.length * labelW);
+  canvas.height = dot + labelH;
+  const ctx = canvas.getContext("2d");
+  const dots = {}, labels = {};
+  planets.forEach((id, i) => {
+    const [r, g, b] = BODY_STYLES[id].dot;
+    const cx = i * dot + dot / 2, cy = dot / 2;
+    const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, dot / 2);
+    gradient.addColorStop(0, "rgba(255, 255, 255, 1)");
+    gradient.addColorStop(0.10, `rgba(${r}, ${g}, ${b}, 1)`);
+    gradient.addColorStop(0.24, `rgba(${r}, ${g}, ${b}, 0.85)`);
+    gradient.addColorStop(0.50, `rgba(${r}, ${g}, ${b}, 0.20)`);
+    gradient.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+    ctx.fillStyle = gradient;
+    ctx.fillRect(i * dot, 0, dot, dot);
+    dots[id] = {u0: (i * dot) / canvas.width, u1: ((i + 1) * dot) / canvas.width, v0: 0, v1: dot / canvas.height};
+  });
+  ctx.font = `600 ${13 * scale}px system-ui, -apple-system, Segoe UI, sans-serif`;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.lineJoin = "round";
+  BODY_ORDER.forEach((id, i) => {
+    const name = id.charAt(0).toUpperCase() + id.slice(1);
+    const x = i * labelW + 4 * scale, y = dot + labelH / 2;
+    ctx.strokeStyle = "rgba(3, 9, 18, 0.9)";
+    ctx.lineWidth = 4 * scale;
+    ctx.strokeText(name, x, y);
+    ctx.fillStyle = BODY_STYLES[id].label || "#c6c0f2";
+    ctx.fillText(name, x, y);
+    labels[id] = {
+      u0: (i * labelW) / canvas.width, u1: ((i + 1) * labelW) / canvas.width,
+      v0: dot / canvas.height, v1: 1, w: labelW / scale, h: labelH / scale
+    };
+  });
+  return {texture: createCanvasTexture(gl, canvas), dots, labels};
+}
+
+function pushSpriteQuad(data, offset, x0, y0, x1, y1, e){
+  data.set([
+    x0, y0, e.u0, e.v0,  x1, y0, e.u1, e.v0,  x0, y1, e.u0, e.v1,
+    x1, y0, e.u1, e.v0,  x1, y1, e.u1, e.v1,  x0, y1, e.u0, e.v1
+  ], offset);
+  return offset + 24;
+}
+
+// Draw textured quads (compass letters, planet dots, name labels).
+function drawSpriteQuads(gl, texture, data, vertexCount, W, H){
+  if(!vertexCount) return;
+  const text = globeLayer.textProgram;
+  gl.useProgram(text.program);
+  gl.bindVertexArray(groundView.cardinalVao);
+  gl.bindBuffer(gl.ARRAY_BUFFER, groundView.cardinalBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, data.subarray(0, vertexCount * 4), gl.DYNAMIC_DRAW);
+  gl.uniform2f(text.uniforms.u_view, W, H);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.bindSampler(0, null);
+  gl.uniform1i(text.uniforms.u_tex, 0);
+  gl.drawArrays(gl.TRIANGLES, 0, vertexCount);
+}
+
 function initGroundLayer(){
   if(groundView.program) return true;
   if(groundView.glFailed || !Astro) return false;
@@ -2897,7 +3052,8 @@ function initGroundLayer(){
     gl.enableVertexAttribArray(tp); gl.vertexAttribPointer(tp, 2, gl.FLOAT, false, 16, 0);
     gl.enableVertexAttribArray(tu); gl.vertexAttribPointer(tu, 2, gl.FLOAT, false, 16, 8);
     const cardinalAtlas = buildCardinalAtlas(gl);
-    Object.assign(groundView, {program, vao, cardinalVao, cardinalBuffer, cardinalAtlas});
+    const bodyAtlas = buildBodyAtlas(gl);
+    Object.assign(groundView, {program, vao, cardinalVao, cardinalBuffer, cardinalAtlas, bodyAtlas});
   }catch(error){
     console.warn("Ground view layer unavailable.", error);
     groundView.glFailed = true;
@@ -2938,7 +3094,9 @@ function drawGroundLayer(){
   const fov = wasm.getFieldOfView();
   const eps = Math.max(1e-5, Math.min(2, fov * 0.02)) * DEG_TO_RAD;
   const tangentStep = Math.max(0.02, Math.min(1, fov * 0.01));
-  const count = 3 + CARDINAL_POINTS.length * 3;
+  const bodies = Astro.solarSystemHorizon(observer.latitude, observer.longitude, groundView.frameMs);
+  const bodyBase = 3 + CARDINAL_POINTS.length * 3;
+  const count = bodyBase + bodies.length;
   const ra = new Float64Array(count), dec = new Float64Array(count);
   const put = (index, horizonVector) => {
     const eq = Astro.vectorToSpherical(Astro.multiplyMatrixVector(matrix, horizonVector));
@@ -2958,6 +3116,7 @@ function drawGroundLayer(){
     put(4 + i * 3, Astro.altAzToVector(point.az - tangentStep, 0));
     put(5 + i * 3, Astro.altAzToVector(point.az + tangentStep, 0));
   });
+  bodies.forEach((body, i) => put(bodyBase + i, body.vector));
   let xy;
   try{ xy = wasm.worldToScreenVec(ra, dec); }catch(error){ return; }
   if(!xy || xy.length !== count * 2) return;
@@ -2970,9 +3129,44 @@ function drawGroundLayer(){
   const kCss = suLength / (2 * Math.tan(eps / 2));
   groundView.degPerPx = (eps / DEG_TO_RAD) / suLength;
 
-  const sunHz = Astro.sunAltAz(observer.latitude, observer.longitude, groundView.frameMs);
-  const sunVector = Astro.altAzToVector(sunHz.az, sunHz.alt);
-  const day = groundView.options.daylight ? sunDaylightFactor(sunHz.alt) : 0;
+  const sunBody = bodies.find(body => body.id === "sun");
+  const moonBody = bodies.find(body => body.id === "moon");
+  const sunVector = sunBody.vector;
+  const day = groundView.options.daylight ? sunDaylightFactor(sunBody.alt) : 0;
+  const showBodies = groundView.options.bodies;
+  // The Sun and Moon are drawn at their true size, but never smaller than a
+  // few pixels so they (and the Moon's phase) stay visible in a wide view.
+  const minDiscDeg = 5 * groundView.degPerPx;
+  const sunRadiusDeg = Math.max(sunBody.angularRadius, minDiscDeg);
+  const moonRadiusDeg = Math.max(moonBody.angularRadius, minDiscDeg);
+
+  // Planet dots (drawn under the ground) and name labels (drawn on top).
+  let dotVerts = 0, labelVerts = 0;
+  if(showBodies && groundView.bodyAtlas){
+    const atlas = groundView.bodyAtlas;
+    let dn = 0, ln = 0;
+    bodies.forEach((body, i) => {
+      const x = xy[(bodyBase + i) * 2], y = xy[(bodyBase + i) * 2 + 1];
+      if((x === 0 && y === 0) || !Number.isFinite(x) || !Number.isFinite(y)) return;
+      if(x < -120 || x > W + 120 || y < -60 || y > H + 60) return;
+      let radius;
+      if(body.id === "sun") radius = sunRadiusDeg / groundView.degPerPx;
+      else if(body.id === "moon") radius = moonRadiusDeg / groundView.degPerPx;
+      else{
+        // Brighter planets get a larger glow.
+        radius = Math.max(2.6, Math.min(11, 6.8 - 0.95 * body.magnitude));
+        const half = radius * 1.8;
+        dn = pushSpriteQuad(groundView.bodyDotData, dn, x - half, y - half, x + half, y + half, atlas.dots[body.id]);
+        radius *= 0.55;
+      }
+      if(body.alt < -0.5) return; // set: no label
+      const label = atlas.labels[body.id];
+      const lx = Math.round(x + Math.min(radius, 60) + 3), ly = Math.round(y - Math.min(radius, 60) * 0.7 - label.h / 2 - 2);
+      ln = pushSpriteQuad(groundView.bodyLabelData, ln, lx, ly, lx + label.w, ly + label.h, label);
+    });
+    dotVerts = dn / 4;
+    labelVerts = ln / 4;
+  }
 
   let cardinalVerts = 0;
   if(groundView.options.cardinals && groundView.cardinalAtlas){
@@ -3018,6 +3212,8 @@ function drawGroundLayer(){
     gl.blendEquation(gl.FUNC_ADD);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 
+    if(dotVerts) drawSpriteQuads(gl, groundView.bodyAtlas.texture, groundView.bodyDotData, dotVerts, W, H);
+
     const {program, uniforms} = groundView.program;
     gl.useProgram(program);
     gl.bindVertexArray(groundView.vao);
@@ -3033,22 +3229,17 @@ function drawGroundLayer(){
     gl.uniform1f(uniforms.u_day, day);
     gl.uniform1f(uniforms.u_light, 1 + 2.2 * day);
     gl.uniform3f(uniforms.u_sun, sunVector[0], sunVector[1], sunVector[2]);
-    gl.uniform1f(uniforms.u_sunDisc, groundView.options.daylight ? 1 : 0);
+    gl.uniform1f(uniforms.u_sunDisc, showBodies || groundView.options.daylight ? 1 : 0);
+    gl.uniform1f(uniforms.u_sunRadius, sunRadiusDeg * DEG_TO_RAD);
+    gl.uniform3f(uniforms.u_moon, moonBody.vector[0], moonBody.vector[1], moonBody.vector[2]);
+    gl.uniform1f(uniforms.u_moonOn, showBodies ? 1 : 0);
+    gl.uniform1f(uniforms.u_moonRadius, moonRadiusDeg * DEG_TO_RAD);
+    gl.uniform1f(uniforms.u_moonPhase, moonBody.phaseAngle * DEG_TO_RAD);
+    gl.uniform1f(uniforms.u_moonLit, moonBody.illuminated);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 
-    if(cardinalVerts){
-      const text = globeLayer.textProgram;
-      gl.useProgram(text.program);
-      gl.bindVertexArray(groundView.cardinalVao);
-      gl.bindBuffer(gl.ARRAY_BUFFER, groundView.cardinalBuffer);
-      gl.bufferData(gl.ARRAY_BUFFER, groundView.cardinalData.subarray(0, cardinalVerts * 4), gl.DYNAMIC_DRAW);
-      gl.uniform2f(text.uniforms.u_view, W, H);
-      gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, groundView.cardinalAtlas.texture);
-      gl.bindSampler(0, null);
-      gl.uniform1i(text.uniforms.u_tex, 0);
-      gl.drawArrays(gl.TRIANGLES, 0, cardinalVerts);
-    }
+    if(cardinalVerts) drawSpriteQuads(gl, groundView.cardinalAtlas.texture, groundView.cardinalData, cardinalVerts, W, H);
+    if(labelVerts) drawSpriteQuads(gl, groundView.bodyAtlas.texture, groundView.bodyLabelData, labelVerts, W, H);
   }catch(error){
     console.error("Ground layer draw failed.", error);
   }finally{
@@ -3177,6 +3368,69 @@ function leaveGroundView(){
   scheduleConstellationDraw();
 }
 
+// --- time controls ------------------------------------------------------------
+// Speeds the faster/slower buttons step through (seconds of sky per second).
+const TIME_RATES = [-3600, -600, -60, 1, 60, 600, 3600];
+let resumeTimeRate = 1;
+
+function describeTimeRate(rate){
+  if(rate === 0) return "Paused";
+  if(rate === 1) return "Real time";
+  const size = Math.abs(rate);
+  const text = size >= 3600 ? `${size / 3600} h/s` : size >= 60 ? `${size / 60} min/s` : `${size}×`;
+  return rate < 0 ? `Reverse ${text}` : text;
+}
+
+function setTimeRate(rate){
+  if(!Number.isFinite(rate)) rate = 1;
+  if(rate !== 0) resumeTimeRate = rate;
+  setGroundClock(groundNowMs(), rate);
+  syncTimeUi();
+  if(groundView.active) requestSkyFrame();
+}
+
+function toggleTimePause(){
+  setTimeRate(groundClock.rate === 0 ? resumeTimeRate : 0);
+}
+
+function stepTimeRate(direction){
+  const current = groundClock.rate === 0 ? resumeTimeRate : groundClock.rate;
+  let index = TIME_RATES.indexOf(current);
+  if(index < 0) index = TIME_RATES.indexOf(1);
+  setTimeRate(TIME_RATES[Math.max(0, Math.min(TIME_RATES.length - 1, index + direction))]);
+}
+
+function jumpToNow(){
+  resumeTimeRate = 1;
+  setGroundClock(Date.now(), 1);
+  syncTimeUi();
+  if(groundView.active) requestSkyFrame();
+}
+
+const TIME_ICONS = {
+  pause: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><rect x="5" y="4" width="5" height="16" rx="1.2" fill="currentColor"/><rect x="14" y="4" width="5" height="16" rx="1.2" fill="currentColor"/></svg>',
+  play: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12.5-7.5a1 1 0 0 0 0-1.72L8.5 3.64A1 1 0 0 0 7 4.5z" fill="currentColor"/></svg>'
+};
+
+function syncTimeUi(){
+  const pause = $("timePause");
+  if(!pause) return;
+  const rate = groundClock.rate;
+  const paused = rate === 0;
+  syncTimeUi.shownRate = rate;
+  pause.setAttribute("aria-pressed", String(paused));
+  pause.setAttribute("aria-label", paused ? "Resume time" : "Pause time");
+  pause.title = paused ? "Resume time (Space)" : "Pause time (Space)";
+  pause.innerHTML = (paused ? TIME_ICONS.play : TIME_ICONS.pause) + `<span>${paused ? "Play" : "Pause"}</span>`;
+  $("timeRate").textContent = describeTimeRate(rate);
+  $("timeRate").classList.toggle("isPaused", paused);
+  const index = TIME_RATES.indexOf(paused ? resumeTimeRate : rate);
+  $("timeSlower").disabled = index === 0;
+  $("timeFaster").disabled = index === TIME_RATES.length - 1;
+  const select = $("groundSpeed");
+  if(select && [...select.options].some(option => option.value === String(rate))) select.value = String(rate);
+}
+
 function setGroundView(on){
   if(on) enterGroundView();
   else leaveGroundView();
@@ -3230,7 +3484,8 @@ function syncGroundUi(){
     $("groundToggle").textContent = on ? "Exit ground view" : "Ground view";
   }
   if($("groundEnable")) $("groundEnable").checked = on;
-  if($("groundStatus")) $("groundStatus").hidden = !on;
+  if($("groundDock")) $("groundDock").hidden = !on;
+  syncTimeUi();
   updateGroundReadouts();
 }
 
@@ -3240,9 +3495,23 @@ function updateGroundReadouts(){
   const ms = groundNowMs();
   const timeInput = $("groundTime");
   if(timeInput && document.activeElement !== timeInput) timeInput.value = toDatetimeLocalValue(ms);
+  if(groundClock.rate !== syncTimeUi.shownRate) syncTimeUi(); // keep the buttons honest however the speed changed
   syncObserverInputs();
 
-  const sun = Astro.sunAltAz(observer.latitude, observer.longitude, ms);
+  const bodies = Astro.solarSystemHorizon(observer.latitude, observer.longitude, ms);
+  const sun = bodies[0];
+  document.querySelectorAll("#groundBodies .bodyRow").forEach(row => {
+    const body = bodies.find(b => b.id === row.dataset.body);
+    if(!body) return;
+    const up = body.alt >= 0;
+    let text = up
+      ? `${compassName(body.az)} ${body.az.toFixed(0)}° · ${body.alt.toFixed(1)}° up`
+      : `set · ${Math.abs(body.alt).toFixed(0)}° below`;
+    if(body.id === "moon") text += ` · ${Math.round(body.illuminated * 100)}% lit`;
+    const where = row.lastElementChild;
+    if(where.textContent !== text) where.textContent = text;
+    row.classList.toggle("isDown", !up);
+  });
   const lstHours = Astro.localSiderealDegrees(observer.longitude, ms) / 15;
   $("groundLst").textContent = `${pad2(lstHours)}h ${pad2((lstHours % 1) * 60)}m`;
   $("groundSun").textContent = `${sun.alt >= 0 ? "+" : "−"}${Math.abs(sun.alt).toFixed(1)}° · ${describeSun(sun.alt)}`;
@@ -3287,18 +3556,48 @@ function installGroundView(){
       if(groundView.active) requestSkyFrame();
     }
   });
-  $("groundNow").addEventListener("click", () => {
-    setGroundClock(Date.now(), 1);
-    $("groundSpeed").value = "1";
-    if(groundView.active) requestSkyFrame();
+  $("groundNow").addEventListener("click", jumpToNow);
+  $("groundSpeed").addEventListener("change", () => setTimeRate(Number($("groundSpeed").value)));
+
+  // Large on-screen time buttons.
+  $("timePause").addEventListener("click", toggleTimePause);
+  $("timeSlower").addEventListener("click", () => stepTimeRate(-1));
+  $("timeFaster").addEventListener("click", () => stepTimeRate(1));
+  $("timeNow").addEventListener("click", jumpToNow);
+  // Space pauses and resumes while standing on the ground (a focused button
+  // or field keeps its own Space behaviour).
+  window.addEventListener("keydown", event => {
+    if(!groundView.active || event.code !== "Space" || event.repeat) return;
+    if(event.altKey || event.ctrlKey || event.metaKey) return;
+    const target = event.target;
+    if(target && (target.isContentEditable || /^(INPUT|SELECT|TEXTAREA|BUTTON|A)$/.test(target.tagName))) return;
+    event.preventDefault();
+    toggleTimePause();
   });
-  $("groundSpeed").addEventListener("change", () => {
-    const rate = Number($("groundSpeed").value);
-    setGroundClock(groundNowMs(), Number.isFinite(rate) ? rate : 1);
+  syncTimeUi();
+
+  // Sun, Moon and planets: one row each, click to face it.
+  const bodyList = $("groundBodies");
+  BODY_ORDER.forEach(id => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "bodyRow";
+    row.dataset.body = id;
+    row.innerHTML = `<span class="bodyName">${id.charAt(0).toUpperCase() + id.slice(1)}</span><span class="bodyWhere">—</span>`;
+    row.addEventListener("click", () => {
+      if(!groundView.active) setGroundView(true);
+      if(!groundView.active) return;
+      const body = Astro.solarSystemHorizon(observer.latitude, observer.longitude, groundNowMs()).find(b => b.id === id);
+      groundLookAt(body.az, body.alt);
+      $("groundLocationNote").textContent = body.alt < 0
+        ? `${body.name} is ${Math.abs(body.alt).toFixed(1)}° below the horizon right now.`
+        : "";
+    });
+    bodyList.appendChild(row);
   });
 
   [["groundCardinals", "cardinals"], ["groundHorizonLine", "horizonLine"],
-   ["groundTreeline", "treeline"], ["groundDaylight", "daylight"]].forEach(([id, key]) => {
+   ["groundTreeline", "treeline"], ["groundDaylight", "daylight"], ["groundBodiesOn", "bodies"]].forEach(([id, key]) => {
     $(id).checked = groundView.options[key];
     $(id).addEventListener("change", () => {
       groundView.options[key] = $(id).checked;

@@ -137,3 +137,68 @@ test('Sun is up at local noon and down at local midnight in Los Angeles', () => 
   assert.ok(noon.alt > 30 && noon.alt < 45, `noon altitude ${noon.alt}`);
   assert.ok(midnight.alt < -50, `midnight altitude ${midnight.alt}`);
 });
+
+// Reference values from NASA JPL Horizons (topocentric, airless apparent
+// azimuth/elevation, illuminated fraction in percent).
+const JPL_SKIES = [
+  {
+    label: 'Los Angeles, 2026-11-09 23:22 UT', ms: Date.UTC(2026, 10, 9, 23, 22, 0), latitude: 34.0522, longitude: -118.2437,
+    bodies: {
+      sun: [235.804565, 15.968769, 100], moon: [226.307294, 14.309892, 0.66354],
+      mercury: [246.434157, 11.354946, 11.22712], venus: [255.458706, 0.956671, 8.88680],
+      mars: [311.901164, -24.758842, 89.43061], jupiter: [309.096251, -24.923031, 99.14130],
+      saturn: [90.432461, 2.479331, 99.89110], uranus: [39.978082, -23.713344, 99.99459],
+      neptune: [95.561304, 7.215872, 99.98595]
+    }
+  },
+  {
+    label: 'Sydney, 2031-03-15 10:30 UT', ms: Date.UTC(2031, 2, 15, 10, 30, 0), latitude: -33.8688, longitude: 151.2093,
+    bodies: {
+      sun: [245.760275, -28.197316, 100], moon: [132.334588, -18.666229, 59.15797],
+      mercury: [263.692301, -20.668920, 57.21939], venus: [276.658750, -10.142809, 81.61508],
+      mars: [112.933853, -4.527057, 93.05500], jupiter: [145.245784, -24.567884, 99.11763],
+      saturn: [303.459379, 12.269794, 99.73695], uranus: [317.729593, 19.586977, 99.93318],
+      neptune: [261.776932, -18.186010, 99.99742]
+    }
+  }
+];
+
+for(const sky of JPL_SKIES){
+  test(`Sun, Moon and planets match JPL Horizons: ${sky.label}`, () => {
+    const bodies = astro.solarSystemHorizon(sky.latitude, sky.longitude, sky.ms);
+    assert.equal(bodies.length, 9);
+    for(const body of bodies){
+      const [az, alt, illuminated] = sky.bodies[body.id];
+      // 2.5 arcminutes for planets and the Sun, 3 for the fast-moving Moon.
+      const tolerance = (body.id === 'moon' ? 3 : 2.5) / 60;
+      const azError = astro.angleDifference(body.az, az) * Math.cos(alt * astro.RAD);
+      assert.ok(Math.abs(azError) <= tolerance, `${body.name} azimuth off by ${(azError * 60).toFixed(2)} arcmin`);
+      assert.ok(Math.abs(body.alt - alt) <= tolerance, `${body.name} altitude off by ${((body.alt - alt) * 60).toFixed(2)} arcmin`);
+      assert.ok(Math.abs(body.illuminated * 100 - illuminated) <= 1, `${body.name} illumination ${body.illuminated * 100} vs ${illuminated}`);
+      const length = Math.hypot(body.vector[0], body.vector[1], body.vector[2]);
+      assert.ok(Math.abs(length - 1) < 1e-9, `${body.name} horizon vector is a unit vector`);
+    }
+  });
+}
+
+test('Moon parallax and size are sensible', () => {
+  const ms = Date.UTC(2026, 10, 9, 23, 22, 0);
+  const moon = astro.solarSystemHorizon(34.0522, -118.2437, ms).find(body => body.id === 'moon');
+  assert.ok(moon.angularRadius > 0.24 && moon.angularRadius < 0.29, `Moon radius ${moon.angularRadius}`);
+  assert.ok(moon.distance > 55 && moon.distance < 64, `Moon distance ${moon.distance} Earth radii`);
+  // Seen from the far side of the Earth the Moon shifts by a noticeable fraction of a degree.
+  const geo = astro.solarSystemPositions(ms).moon;
+  const a = astro.equatorialOfDateToAltAz(geo.ra, geo.dec, 34.0522, -118.2437, ms);
+  const shift = Math.hypot(astro.angleDifference(a.az, moon.az) * Math.cos(moon.alt * astro.RAD), a.alt - moon.alt);
+  assert.ok(shift > 0.3 && shift < 1.1, `parallax shift ${shift}`);
+});
+
+test('planet brightness is in the right range', () => {
+  const p = astro.solarSystemPositions(Date.UTC(2026, 10, 9, 23, 22, 0));
+  assert.ok(p.venus.magnitude < -3.8 && p.venus.magnitude > -5);
+  assert.ok(p.jupiter.magnitude < -1.5 && p.jupiter.magnitude > -3);
+  assert.ok(Math.abs(p.saturn.magnitude - 0.505) < 0.4);
+  assert.ok(Math.abs(p.mars.magnitude - 0.786) < 0.4);
+  assert.ok(p.uranus.magnitude > 5 && p.uranus.magnitude < 6.5);
+  assert.ok(p.neptune.magnitude > 7 && p.neptune.magnitude < 8.5);
+});
