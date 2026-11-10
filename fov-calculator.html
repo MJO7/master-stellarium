@@ -41,6 +41,19 @@ aside{padding:14px;background:#0c121b;border-right:1px solid #293548;overflow-y:
 #aladin-lite-div{z-index:0}
 .skyStatus{position:absolute;z-index:3;left:50%;bottom:42px;transform:translateX(-50%);max-width:min(460px,90%);padding:8px 12px;border:1px solid #4b5d75;border-radius:8px;background:#111925;color:#edf3fb;font-size:12px;text-align:center}
 .skyStatus[hidden]{display:none}
+.groundToggle{position:absolute;z-index:3;top:46px;right:6px;width:auto;padding:7px 11px;border:1px solid #4b5d75;border-radius:8px;background:#111925e6;color:#edf3fb;font-size:12px;font-weight:600;line-height:1.2}
+.groundToggle:hover{background:#1c2b42}
+.groundToggle[aria-pressed="true"]{background:#1d4a2c;border-color:#57c27c;color:#eafff0}
+.groundToggle:focus-visible{outline:2px solid #66d9ff;outline-offset:2px}
+.groundStatus{position:absolute;z-index:3;left:236px;bottom:6px;max-width:calc(100% - 340px);padding:5px 10px;border:1px solid #2e3a4d;border-radius:8px;background:#0b111acc;color:#dbe6f4;font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;pointer-events:none}
+.groundStatus[hidden]{display:none}
+.groundActive .aladin-projection-control{display:none}
+.lookRow{display:grid;grid-template-columns:repeat(4,1fr) 1.6fr;gap:6px;margin:9px 0 7px}
+.lookRow button{padding-inline:4px}
+label.stackLabel{display:block;margin:9px 0 7px}
+label.stackLabel input{display:block;margin-top:5px}
+#groundLocationNote:empty{display:none}
+#groundSection .metric strong{text-align:right}
 section{border:1px solid #293548;border-radius:10px;padding:11px;margin-bottom:11px;background:#111925}
 section h2{font-size:14px;margin:0 0 9px}
 .collapsibleSection{padding:0;overflow:clip}
@@ -134,6 +147,7 @@ kbd{display:inline-block;padding:0 5px;border:1px solid #4b5d75;border-bottom-wi
   .row2,.mosaicActions,.compareActions{grid-template-columns:1fr 1fr}
   .homeLink{font-size:13px}
 }
+@media(max-width:960px){.groundStatus{left:8px;bottom:44px;max-width:calc(100% - 150px);font-size:10.5px}.groundToggle{min-height:40px}}
 @media(max-width:650px) and (orientation:landscape){.viewer{height:70dvh;min-height:260px}.configInsight{display:none}}
 </style>
 </head>
@@ -208,6 +222,75 @@ kbd{display:inline-block;padding:0 5px;border:1px solid #4b5d75;border-bottom-wi
 </div>
 
 <p class="note">Constellation data is loaded once. Lines and names are drawn into the sky image itself, so they stay locked to the stars while you pan, zoom, or rotate; on the SIN globe they follow the sphere and stop at its edge. Figures use a lightweight overlay. None of this alters the camera, OAG, and mosaic overlays.</p>
+</section>
+
+<section id="groundSection">
+<h2>Ground view</h2>
+
+<div class="inlineCheck">
+  <input id="groundEnable" type="checkbox">
+  <label for="groundEnable" style="display:inline;margin:0;color:#edf3fb">Stand on the ground (horizon view)</label>
+</div>
+<p class="note">Shows the sky as you see it from your location: ground below the horizon, compass points, and the sky turning as time passes. Drag or use the arrow keys to look around; the horizon stays level.</p>
+
+<label>Latitude (° north)<input id="groundLat" type="number" min="-90" max="90" step="0.0001" inputmode="decimal"></label>
+<label>Longitude (° east)<input id="groundLon" type="number" min="-180" max="180" step="0.0001" inputmode="decimal"></label>
+<label>Elevation (m)<input id="groundElev" type="number" step="1" inputmode="decimal"></label>
+<button id="groundUseDevice" type="button">Use my device location</button>
+<p id="groundLocationNote" class="note" aria-live="polite"></p>
+
+<label class="stackLabel">Date and time (this device’s time zone)
+  <input id="groundTime" type="datetime-local" step="1">
+</label>
+<div class="row2">
+  <button id="groundNow" type="button">Now</button>
+  <select id="groundSpeed" aria-label="Time speed">
+    <option value="0">Paused</option>
+    <option value="1" selected>Real time (1×)</option>
+    <option value="60">1 minute / second</option>
+    <option value="600">10 minutes / second</option>
+    <option value="3600">1 hour / second</option>
+    <option value="-60">Reverse 1 min / s</option>
+    <option value="-3600">Reverse 1 h / s</option>
+  </select>
+</div>
+
+<div class="lookRow" role="group" aria-label="Look toward">
+  <button type="button" data-ground-look="0">N</button>
+  <button type="button" data-ground-look="90">E</button>
+  <button type="button" data-ground-look="180">S</button>
+  <button type="button" data-ground-look="270">W</button>
+  <button type="button" data-ground-look="zenith">Zenith</button>
+</div>
+<div class="row2">
+  <button id="groundLookTarget" type="button">Look at my framed target</button>
+  <button id="groundLevel" type="button">Level horizon</button>
+</div>
+
+<div class="inlineCheck">
+  <input id="groundCardinals" type="checkbox">
+  <label for="groundCardinals" style="display:inline;margin:0;color:#edf3fb">Compass points (N, NE, E…)</label>
+</div>
+<div class="inlineCheck">
+  <input id="groundTreeline" type="checkbox">
+  <label for="groundTreeline" style="display:inline;margin:0;color:#edf3fb">Hills and treeline</label>
+</div>
+<div class="inlineCheck">
+  <input id="groundHorizonLine" type="checkbox">
+  <label for="groundHorizonLine" style="display:inline;margin:0;color:#edf3fb">True horizon line (0° altitude)</label>
+</div>
+<div class="inlineCheck">
+  <input id="groundDaylight" type="checkbox">
+  <label for="groundDaylight" style="display:inline;margin:0;color:#edf3fb">Daylight and Sun (hides stars by day)</label>
+</div>
+
+<div class="metrics" style="margin-top:9px">
+  <div class="metric"><span>Location</span><strong id="groundLocation">—</strong></div>
+  <div class="metric"><span>Looking at</span><strong id="groundLook">—</strong></div>
+  <div class="metric"><span>Local sidereal time</span><strong id="groundLst">—</strong></div>
+  <div class="metric"><span>Sun altitude</span><strong id="groundSun">—</strong></div>
+</div>
+<p class="note">Positions use your location and the time above (accurate to about 0.01°). The landscape is illustrative; the true horizon is at 0° altitude. Camera, OAG and mosaic frames stay true to the sky and turn with it.</p>
 </section>
 
 <section id="appearanceSection">
@@ -419,11 +502,14 @@ kbd{display:inline-block;padding:0 5px;border:1px solid #4b5d75;border-bottom-wi
 <div id="aladin-lite-div"></div>
 <canvas id="constellationCanvas"></canvas>
 <svg id="overlay" preserveAspectRatio="none"><g id="graphics"></g></svg>
+<button id="groundToggle" class="groundToggle" type="button" aria-pressed="false" title="Stand on the ground and look up at the sky">Ground view</button>
+<div id="groundStatus" class="groundStatus" role="status" hidden></div>
 <div id="skyStatus" class="skyStatus" role="status" hidden></div>
 <button id="jumpToControls" class="mobileJump toControls" type="button" aria-label="Jump to telescope and camera controls">Controls ↓</button>
 </main>
 </div>
 
+<script src="ground-astro.js"></script>
 <script type="module">
 import A from "./vendor/aladin.js";
 const $ = id => document.getElementById(id);
@@ -1057,7 +1143,11 @@ function update(){
 
   const [fovXraw, fovYraw] = getLiveFov();
   const fovX = Math.max(0.00001, fovXraw), fovY = Math.max(0.00001, fovYraw);
-  const sx = W / fovX, sy = H / fovY;
+  let sx = W / fovX, sy = H / fovY;
+  // Ground view uses a wide fisheye-like projection: take the exact scale at
+  // the view centre so frames stay true to size, and turn them with the sky.
+  if(groundView.active && groundView.degPerPx > 0) sx = sy = 1 / groundView.degPerPx;
+  syncOverlayTransform();
 
   const fl = Number($("fl").value);
   const mains = selectedMainKeys();
@@ -1181,6 +1271,7 @@ function update(){
   updateComparisonSummary();
   updateConfigurationInsight();
   drawConstellations();
+  updateGroundReadouts();
 }
 
 function fitAll(){
@@ -1296,7 +1387,14 @@ function localSiderealTimeDegrees(longitudeDeg, date = new Date()){
   return normalizeDegrees(gmst + longitudeDeg);
 }
 
-function useObserverLocation(latitude, longitude){
+function useObserverLocation(latitude, longitude, elevation){
+  setObserver(latitude, longitude, Number.isFinite(elevation) ? elevation : observer.elevation);
+  if(groundView.active){
+    // Standing on the ground: keep looking the same way from the new place.
+    $("locationStatus").textContent =
+      `Lat ${latitude.toFixed(4)}°, Lon ${longitude.toFixed(4)}° · ground view`;
+    return;
+  }
   const lstDeg = localSiderealTimeDegrees(longitude);
   const zenithRAHours = lstDeg / 15;
   // The current zenith has RA = local sidereal time, Dec = observer latitude.
@@ -2202,7 +2300,8 @@ function constellationViewKey(W, H, dpr){
     $("showConstellationNames").checked,
     $("constellationOpacity").value,
     constellationState.loaded,
-    globeLayer.ok
+    globeLayer.ok,
+    groundView.active
   ].join("|");
 }
 
@@ -2244,7 +2343,10 @@ function drawConstellations(force=false){
   const names = $("showConstellationNames").checked;
   const opacity = Math.max(0.03, Math.min(0.35, Number($("constellationOpacity").value) / 100));
   const onGlobe = initGlobeLayer();
-  if(figures) drawConstellationBounds(ctx, opacity, W, H);
+  if(figures){
+    drawConstellationBounds(ctx, opacity, W, H);
+    if(groundView.active) eraseBelowHorizon(ctx, W, H);
+  }
   if(lines && !onGlobe) drawConstellationLines(ctx, W, H);
   if(names && !onGlobe) drawConstellationNames(ctx, W, H);
 
@@ -2287,13 +2389,30 @@ function attachConstellationsToSkyFrame(){
   if(wasm && typeof wasm.update === "function" && !wasm.constellationHooked){
     const updateSky = wasm.update;
     wasm.update = function(...args){
-      globeLayer.skyPainted = false;
+      if(groundView.active){
+        try{ applyGroundCamera(); }catch(error){ console.error("Ground view camera failed:", error); }
+      }
       const result = updateSky.apply(this, args);
       try{
-        if(globeLayer.ok && globeLayer.skyPainted) drawGlobeLayer();
-      }catch(error){ console.error("Globe constellation draw failed:", error); }
+        // Draw on top of every frame Aladin painted (including any repaint it
+        // made outside this call since the last frame).
+        if(globeLayer.ok && globeLayer.skyPainted){
+          globeLayer.skyPainted = false;
+          drawGlobeLayer();
+          if(groundView.active) drawGroundLayer();
+        }
+      }catch(error){ console.error("Sky layer draw failed:", error); }
       return result;
     };
+    // In Ground view a drag changes azimuth and altitude (level horizon)
+    // instead of rolling the sphere freely.
+    if(typeof wasm.goFromTo === "function"){
+      const goFromTo = wasm.goFromTo;
+      wasm.goFromTo = function(x1, y1, x2, y2){
+        if(!groundView.active) return goFromTo.call(this, x1, y1, x2, y2);
+        try{ groundDrag(x1, y1, x2, y2); }catch(error){ console.error("Ground view drag failed:", error); }
+      };
+    }
     wasm.constellationHooked = true;
   }
   const watch = () => {
@@ -2346,6 +2465,874 @@ function boostPinchZoom(){
   }, {capture: true, passive: false});
 }
 
+// ---------------------------------------------------------------------------
+// Ground view: the sky as seen by an observer standing on Earth.
+//
+// The view is described by an azimuth, an altitude and an optional roll.
+// Before every Aladin frame the camera is re-derived from that state: the
+// alt/az centre is converted to J2000 for the observer's location and the
+// current (simulated) time, and the view is rotated so the zenith is straight
+// up. The ground, horizon line and compass points are then painted with WebGL
+// into Aladin's own canvas in the same frame, so they can never trail the sky.
+// ---------------------------------------------------------------------------
+const Astro = globalThis.GroundAstro || null;
+const GROUND_DEFAULT_FOV = 100;
+const GROUND_MIN_ALT = -10;
+const GROUND_MAX_ALT = 90;
+const GROUND_PROJECTION = "STG"; // stereographic, like Stellarium's default
+const OBSERVER_STORAGE_KEY = "masterStellarium.observer";
+const DEG_TO_RAD = Math.PI / 180;
+
+const observer = {latitude: 34.0522, longitude: -118.2437, elevation: 0, isDefault: true};
+const groundClock = {baseMs: Date.now(), basePerf: performance.now(), rate: 1};
+const groundView = {
+  active: false,
+  started: false,
+  az: 180,
+  alt: 25,
+  roll: 0,            // degrees, clockwise on screen
+  zoomFactor: 0,      // remembered between visits
+  saved: null,        // the standard view to restore on exit
+  appliedCenter: null,
+  dirty: true,
+  frameMs: Date.now(),
+  matrix: null,       // horizon -> J2000 for frameMs
+  degPerPx: 0,        // true scale at the view centre
+  options: {cardinals: true, horizonLine: false, treeline: true, daylight: false},
+  program: null,
+  vao: null,
+  cardinalVao: null,
+  cardinalBuffer: null,
+  cardinalAtlas: null,
+  cardinalData: new Float32Array(8 * 24),
+  glFailed: false
+};
+
+const GROUND_VS = `#version 300 es
+void main(){
+  vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+  gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+}`;
+
+// For every pixel: undo the stereographic projection to get the direction in
+// the horizon frame [north, east, up], then shade ground / treeline / sky.
+const GROUND_FS = `#version 300 es
+precision highp float;
+uniform vec2 u_center;   // view centre, device pixels, y up
+uniform float u_k;       // device pixels per projection unit
+uniform vec2 u_su;       // screen direction of "up" (toward the zenith)
+uniform vec2 u_sr;       // screen direction of increasing azimuth
+uniform vec3 u_f;        // view direction, horizon frame
+uniform vec3 u_u;        // tangent toward the zenith
+uniform vec3 u_r;        // tangent toward increasing azimuth
+uniform float u_treeline;
+uniform float u_line;
+uniform float u_day;     // 0 night .. 1 full daylight (daylight option only)
+uniform float u_light;   // ground brightness
+uniform vec3 u_sun;      // direction of the Sun, horizon frame
+uniform float u_sunDisc;
+out vec4 outColor;
+
+float hash(vec2 cell){
+  ivec2 i = ivec2(cell);
+  uint n = (uint(i.x) * 1597334677u) ^ (uint(i.y) * 3812015801u);
+  n = (n ^ (n >> 15u)) * 2246822519u;
+  n ^= n >> 13u;
+  return float(n >> 8u) * (1.0 / 16777216.0);
+}
+
+float vnoise(vec2 p){
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
+             mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+
+// Value noise that repeats every "period" cells in x, so a pattern laid out
+// around the horizon (x = azimuth) has no seam.
+float pnoise(vec2 p, float period){
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  float x0 = mod(i.x, period), x1 = mod(i.x + 1.0, period);
+  return mix(mix(hash(vec2(x0, i.y)), hash(vec2(x1, i.y)), f.x),
+             mix(hash(vec2(x0, i.y + 1.0)), hash(vec2(x1, i.y + 1.0)), f.x), f.y);
+}
+
+// Distant hills (degrees above the true horizon) for an azimuth in degrees.
+float hillProfile(float azDeg){
+  float az = radians(azDeg);
+  return max(0.12, 0.55 + 0.42 * sin(3.0 * az + 1.3) + 0.30 * sin(7.0 * az + 4.1) + 0.17 * sin(13.0 * az + 0.7));
+}
+
+// Extra height of the tree clumps standing in front of the hills.
+float treeProfile(float azDeg){
+  float clump = smoothstep(0.42, 0.62, pnoise(vec2(azDeg / 9.0, 0.5), 40.0));
+  float crown = pnoise(vec2(azDeg / 1.5, 3.5), 240.0);
+  float bough = pnoise(vec2(azDeg * 2.4, 7.5), 864.0);
+  float leaf = pnoise(vec2(azDeg * 9.0, 11.5), 3240.0);
+  return clump * (0.70 + 1.20 * crown + 0.70 * bough + 0.30 * leaf);
+}
+
+void main(){
+  vec2 p = gl_FragCoord.xy - u_center;
+  float X = dot(p, u_sr) / u_k;
+  float Y = dot(p, u_su) / u_k;
+  float rho = length(vec2(X, Y));
+  float theta = 2.0 * atan(rho * 0.5);
+  vec3 d = u_f;
+  if(rho > 1e-9){
+    d = cos(theta) * u_f + sin(theta) * ((X / rho) * u_r + (Y / rho) * u_u);
+  }
+  float altDeg = degrees(asin(clamp(d.z, -1.0, 1.0)));
+
+  // Derivatives are taken here, before any branching.
+  float altWidth = max(length(vec2(dFdx(altDeg), dFdy(altDeg))), 1e-7); // degrees per pixel
+  vec2 g = d.xy / max(-d.z, 1e-4);              // ground-plane position in eye heights
+  float gWidth = max(length(fwidth(g)), 1e-6);
+  float azDeg = degrees(atan(d.y, d.x)) + 180.0;
+
+  float hills = u_treeline > 0.5 ? hillProfile(azDeg) : 0.0;
+  float trees = u_treeline > 0.5 ? treeProfile(azDeg) : 0.0;
+  float edgeWidth = altWidth * 0.75;
+  float ground = 1.0 - smoothstep(-edgeWidth, edgeWidth, altDeg - (hills + trees));
+  float onHill = 1.0 - smoothstep(-edgeWidth, edgeWidth, altDeg - hills);
+
+  vec3 groundColor;
+  if(altDeg <= 0.0){
+    // Grass: soft patches laid out on the ground plane...
+    float tex = 0.0;
+    float amp = 0.5;
+    float freq = 5.0;
+    for(int i = 0; i < 6; i++){
+      float fade = 1.0 - smoothstep(0.2, 0.8, gWidth * freq);
+      tex += amp * fade * (vnoise(g * freq) - 0.5);
+      freq *= 2.9;
+      amp *= 0.62;
+    }
+    // ...plus fine upright streaks that read as blades in the foreground.
+    float blades = 0.0;
+    float bAmp = 0.5;
+    float bFreq = 3.0;
+    for(int i = 0; i < 4; i++){
+      float fade = 1.0 - smoothstep(0.3, 0.9, altWidth * bFreq);
+      blades += bAmp * fade * (pnoise(vec2(azDeg * bFreq, altDeg * bFreq * 0.33), 360.0 * bFreq) - 0.5);
+      bFreq *= 3.0;
+      bAmp *= 0.72;
+    }
+    float nearness = smoothstep(0.0, 1.0, clamp(-altDeg / 40.0, 0.0, 1.0));
+    groundColor = mix(vec3(0.085, 0.112, 0.055), vec3(0.225, 0.262, 0.112), nearness);
+    groundColor *= 1.0 + 1.15 * tex + (0.35 + 0.75 * nearness) * blades;
+    groundColor = mix(vec3(0.052, 0.068, 0.046), groundColor, smoothstep(0.0, 2.5, -altDeg));
+  }else{
+    // Silhouettes above the true horizon: hazy distant hills, darker trees.
+    float foliage = pnoise(vec2(azDeg * 6.0, altDeg * 9.0), 2160.0);
+    vec3 hillColor = vec3(0.046, 0.060, 0.052) * (0.9 + 0.2 * foliage);
+    vec3 treeColor = vec3(0.014, 0.024, 0.015) * (0.7 + 0.7 * foliage);
+    groundColor = mix(treeColor, hillColor, onHill * (1.0 - smoothstep(0.0, 0.35, trees)));
+  }
+  groundColor *= u_light;
+
+  // Optional daylight: a sky tint that washes out the stars, plus the Sun.
+  vec3 skyColor = vec3(0.0);
+  float skyAlpha = 0.0;
+  if(u_day > 0.001 || u_sunDisc > 0.5){
+    float up = clamp(d.z, 0.0, 1.0);
+    vec3 zenith = mix(vec3(0.02, 0.04, 0.12), vec3(0.16, 0.38, 0.80), u_day);
+    vec3 horizon = mix(vec3(0.55, 0.30, 0.18), vec3(0.62, 0.76, 0.92), smoothstep(0.25, 0.9, u_day));
+    skyColor = mix(horizon, zenith, pow(up, 0.45));
+    skyAlpha = u_day * 0.96;
+    float sunAngle = acos(clamp(dot(d, u_sun), -1.0, 1.0));
+    float glow = (exp(-sunAngle * sunAngle * 900.0) * 0.55 + exp(-sunAngle * sunAngle * 60.0) * 0.16) * u_sunDisc;
+    float disc = (1.0 - smoothstep(0.0044, 0.0052, sunAngle)) * u_sunDisc;
+    skyColor = mix(skyColor + vec3(1.0, 0.85, 0.60) * glow, vec3(1.0, 0.98, 0.92), disc);
+    skyAlpha = max(skyAlpha, max(disc, glow * 0.8));
+  }
+
+  vec3 rgb = skyColor * skyAlpha * (1.0 - ground) + groundColor * ground;
+  float alpha = skyAlpha * (1.0 - ground) + ground;
+
+  float line = u_line * (1.0 - smoothstep(0.6, 1.5, abs(altDeg) / altWidth)) * 0.85;
+  rgb = rgb * (1.0 - line) + vec3(0.30, 0.86, 0.48) * line;
+  alpha = alpha * (1.0 - line) + line;
+
+  outColor = vec4(rgb, alpha);
+}`;
+
+function groundNowMs(){
+  return groundClock.baseMs + (performance.now() - groundClock.basePerf) * groundClock.rate;
+}
+
+function setGroundClock(ms, rate = groundClock.rate){
+  groundClock.baseMs = ms;
+  groundClock.basePerf = performance.now();
+  groundClock.rate = rate;
+  groundView.dirty = true;
+}
+
+function groundMatrixAt(ms){
+  return Astro.horizonToJ2000Matrix(observer.latitude, observer.longitude, ms);
+}
+
+function clampGroundAltitude(alt){
+  return Math.max(GROUND_MIN_ALT, Math.min(GROUND_MAX_ALT, alt));
+}
+
+function equatorialToHorizon(matrix, ra, dec){
+  const v = Astro.multiplyMatrixVector(Astro.transposeMatrix(matrix), Astro.sphericalToVector(ra, dec));
+  const [az, alt] = Astro.vectorToSpherical(v);
+  return {az, alt};
+}
+
+function loadSavedObserver(){
+  try{
+    const saved = JSON.parse(localStorage.getItem(OBSERVER_STORAGE_KEY) || "null");
+    if(saved && Number.isFinite(saved.latitude) && Number.isFinite(saved.longitude) &&
+       Math.abs(saved.latitude) <= 90 && Math.abs(saved.longitude) <= 180){
+      observer.latitude = saved.latitude;
+      observer.longitude = saved.longitude;
+      observer.elevation = Number.isFinite(saved.elevation) ? saved.elevation : 0;
+      observer.isDefault = false;
+    }
+  }catch(error){ /* storage unavailable: keep the default */ }
+}
+
+function setObserver(latitude, longitude, elevation = observer.elevation){
+  if(!Number.isFinite(latitude) || !Number.isFinite(longitude)) return false;
+  if(Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return false;
+  observer.latitude = latitude;
+  observer.longitude = longitude;
+  observer.elevation = Number.isFinite(elevation) ? elevation : 0;
+  observer.isDefault = false;
+  try{
+    localStorage.setItem(OBSERVER_STORAGE_KEY, JSON.stringify({
+      latitude: observer.latitude, longitude: observer.longitude, elevation: observer.elevation
+    }));
+  }catch(error){ /* storage unavailable */ }
+  groundView.dirty = true;
+  syncObserverInputs();
+  if(groundView.active) requestSkyFrame();
+  return true;
+}
+
+function syncObserverInputs(){
+  if(!$("groundLat")) return;
+  if(document.activeElement !== $("groundLat")) $("groundLat").value = observer.latitude.toFixed(4);
+  if(document.activeElement !== $("groundLon")) $("groundLon").value = observer.longitude.toFixed(4);
+  if(document.activeElement !== $("groundElev")) $("groundElev").value = String(Math.round(observer.elevation));
+}
+
+// Point Aladin where the ground-view state says, and level the horizon.
+function applyGroundCamera(){
+  const view = aladin.view, wasm = view.wasm;
+  const ms = groundNowMs();
+  const matrix = groundMatrixAt(ms);
+  groundView.frameMs = ms;
+  groundView.matrix = matrix;
+
+  // Something else moved the view (target search, Aladin's own go-to box):
+  // adopt that direction as the new azimuth and altitude.
+  const current = aladin.getRaDec();
+  if(groundView.appliedCenter){
+    const moved = Math.abs(Astro.angleDifference(current[0], groundView.appliedCenter[0])) *
+      Math.cos(current[1] * DEG_TO_RAD) + Math.abs(current[1] - groundView.appliedCenter[1]);
+    if(moved > 1e-7){
+      const hz = equatorialToHorizon(matrix, current[0], current[1]);
+      groundView.az = hz.az;
+      groundView.alt = clampGroundAltitude(hz.alt);
+      groundView.dirty = true;
+    }
+  }
+
+  const center = Astro.multiplyMatrixVector(matrix, Astro.altAzToVector(groundView.az, groundView.alt));
+  const [ra, dec] = Astro.vectorToSpherical(center);
+  const scale = groundView.degPerPx > 0 ? groundView.degPerPx : wasm.getFieldOfView() / Math.max(1, view.width);
+  const drift = (Math.abs(Astro.angleDifference(ra, current[0])) * Math.cos(dec * DEG_TO_RAD) + Math.abs(dec - current[1])) / scale;
+  // As time runs the sky drifts slowly; only move the view once the drift is
+  // worth a fraction of a pixel, so a wide view is not re-rendered needlessly.
+  if(groundView.dirty || !groundView.appliedCenter || drift > 0.03){
+    wasm.setCenter(ra, dec);
+    if(typeof view.updateCenter === "function") view.updateCenter();
+    if(view.viewCenter && view.aladinDiv){
+      view.aladinDiv.dispatchEvent(new CustomEvent("AL:position.changed", {detail: view.viewCenter}));
+    }
+    groundView.appliedCenter = aladin.getRaDec();
+  }
+
+  // Rotate so the direction of increasing altitude is straight up on screen.
+  const up = Astro.multiplyMatrixVector(matrix, Astro.tangentUp(groundView.az, groundView.alt));
+  const q = Astro.positionAngle(center, up);
+  if(Number.isFinite(q)){
+    const rotation = -q + SCREEN_CLOCKWISE_SIGN * groundView.roll;
+    if(Math.abs(Astro.angleDifference(rotation, wasm.getRotation())) > 1e-4){
+      wasm.setRotation(rotation);
+      syncOverlayTransform();
+    }
+  }
+  groundView.dirty = false;
+}
+
+// Dragging: move the view so the sky point that was under the first screen
+// position ends up under the second, changing only azimuth and altitude.
+function groundDrag(x1, y1, x2, y2){
+  const a = aladin.pix2world(x1, y1, "icrs");
+  if(!a || !Number.isFinite(a[0]) || !Number.isFinite(a[1])) return;
+  const matrix = groundMatrixAt(groundNowMs());
+  const grabbed = equatorialToHorizon(matrix, a[0], a[1]);
+  // Turning in azimuth is exact, but tilting moves off-centre points by
+  // slightly different amounts, so refine a few times until the grabbed
+  // point really sits under the cursor.
+  for(let pass = 0; pass < 4; pass++){
+    const b = aladin.pix2world(x2, y2, "icrs");
+    if(!b || !Number.isFinite(b[0]) || !Number.isFinite(b[1])) break;
+    const under = equatorialToHorizon(matrix, b[0], b[1]);
+    const dAz = Astro.angleDifference(grabbed.az, under.az);
+    const dAlt = grabbed.alt - under.alt;
+    if(!Number.isFinite(dAz) || !Number.isFinite(dAlt)) break;
+    if(Math.abs(dAz) < 1e-6 && Math.abs(dAlt) < 1e-6) break;
+    const previousAlt = groundView.alt;
+    groundView.az = Astro.normalizeDegrees(groundView.az + dAz);
+    groundView.alt = clampGroundAltitude(groundView.alt + dAlt);
+    groundView.dirty = true;
+    applyGroundCamera();
+    if(groundView.alt === previousAlt && Math.abs(dAz) < 1e-6) break; // pinned at a limit
+  }
+}
+
+// Keyboard pan: left/right change azimuth, up/down change altitude.
+function groundPanByPixels(dx, dy){
+  const view = aladin.view;
+  const scale = groundView.degPerPx > 0 ? groundView.degPerPx : view.wasm.getFieldOfView() / Math.max(1, view.width);
+  const cosAlt = Math.max(0.25, Math.cos(groundView.alt * DEG_TO_RAD));
+  groundView.az = Astro.normalizeDegrees(groundView.az + dx * scale / cosAlt);
+  groundView.alt = clampGroundAltitude(groundView.alt - dy * scale);
+  groundView.dirty = true;
+}
+
+function groundLookAt(az, alt){
+  groundView.az = Astro.normalizeDegrees(az);
+  groundView.alt = clampGroundAltitude(alt);
+  groundView.dirty = true;
+  requestSkyFrame();
+}
+
+function createCanvasTexture(gl, canvas){
+  const texture = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  const prevPremultiply = gl.getParameter(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL);
+  const prevFlip = gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL);
+  const prevAlign = gl.getParameter(gl.UNPACK_ALIGNMENT);
+  const prevUnpackBuffer = gl.getParameter(gl.PIXEL_UNPACK_BUFFER_BINDING);
+  gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, null);
+  gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, prevPremultiply);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, prevFlip);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, prevAlign);
+  gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, prevUnpackBuffer);
+  return texture;
+}
+
+const CARDINAL_POINTS = [
+  {label: "N", az: 0, major: true}, {label: "NE", az: 45, major: false},
+  {label: "E", az: 90, major: true}, {label: "SE", az: 135, major: false},
+  {label: "S", az: 180, major: true}, {label: "SW", az: 225, major: false},
+  {label: "W", az: 270, major: true}, {label: "NW", az: 315, major: false}
+];
+
+function buildCardinalAtlas(gl){
+  const scale = 2;
+  const cellW = 64 * scale, cellH = 40 * scale;
+  const canvas = document.createElement("canvas");
+  canvas.width = cellW * CARDINAL_POINTS.length;
+  canvas.height = cellH;
+  const ctx = canvas.getContext("2d");
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.lineJoin = "round";
+  const entries = CARDINAL_POINTS.map((point, i) => {
+    const size = (point.major ? 27 : 20) * scale;
+    ctx.font = `600 ${size}px system-ui, -apple-system, Segoe UI, sans-serif`;
+    const x = i * cellW + cellW / 2, y = cellH / 2;
+    ctx.strokeStyle = "rgba(12, 6, 4, 0.55)";
+    ctx.lineWidth = 3 * scale;
+    ctx.strokeText(point.label, x, y);
+    ctx.fillStyle = "#f2512f";
+    ctx.fillText(point.label, x, y);
+    return {
+      u0: (i * cellW) / canvas.width, u1: ((i + 1) * cellW) / canvas.width, v0: 0, v1: 1,
+      w: cellW / scale, h: cellH / scale
+    };
+  });
+  return {texture: createCanvasTexture(gl, canvas), entries};
+}
+
+function initGroundLayer(){
+  if(groundView.program) return true;
+  if(groundView.glFailed || !Astro) return false;
+  if(!initGlobeLayer()){
+    groundView.glFailed = true;
+    return false;
+  }
+  const gl = globeLayer.gl;
+  const saved = saveGlobeGlState(gl);
+  globeLayer.drawing = true;
+  try{
+    const program = compileGlobeProgram(gl, GROUND_VS, GROUND_FS);
+    const vao = gl.createVertexArray();
+    const text = globeLayer.textProgram.program;
+    const cardinalVao = gl.createVertexArray();
+    const cardinalBuffer = gl.createBuffer();
+    gl.bindVertexArray(cardinalVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, cardinalBuffer);
+    const tp = gl.getAttribLocation(text, "a_pos");
+    const tu = gl.getAttribLocation(text, "a_uv");
+    gl.enableVertexAttribArray(tp); gl.vertexAttribPointer(tp, 2, gl.FLOAT, false, 16, 0);
+    gl.enableVertexAttribArray(tu); gl.vertexAttribPointer(tu, 2, gl.FLOAT, false, 16, 8);
+    const cardinalAtlas = buildCardinalAtlas(gl);
+    Object.assign(groundView, {program, vao, cardinalVao, cardinalBuffer, cardinalAtlas});
+  }catch(error){
+    console.warn("Ground view layer unavailable.", error);
+    groundView.glFailed = true;
+    groundView.program = null;
+  }finally{
+    restoreGlobeGlState(gl, saved);
+    globeLayer.drawing = false;
+  }
+  return !!groundView.program;
+}
+
+function sunDaylightFactor(sunAltitude){
+  const t = Math.max(0, Math.min(1, (sunAltitude + 14) / 18));
+  return t * t * (3 - 2 * t);
+}
+
+// Called right after Aladin (and the constellation layer) painted this frame.
+function drawGroundLayer(){
+  if(!groundView.program || !groundView.matrix) return;
+  const gl = globeLayer.gl;
+  if(gl.isContextLost()) return;
+  const view = aladin.view, wasm = view.wasm;
+  const W = view.width, H = view.height;
+  const canvas = gl.canvas;
+  const dpr = canvas.width / W;
+  const matrix = groundView.matrix;
+
+  // Work from what Aladin actually drew: its centre in the horizon frame.
+  const centerEq = aladin.getRaDec();
+  const forward = Astro.multiplyMatrixVector(Astro.transposeMatrix(matrix), Astro.sphericalToVector(centerEq[0], centerEq[1]));
+  const [azC, altC] = Astro.vectorToSpherical(forward);
+  const up0 = Astro.tangentUp(azC, altC);
+  const right0 = Astro.tangentRight(azC);
+
+  // Project a few reference points with Aladin itself: the centre, one point
+  // toward the zenith and one toward increasing azimuth (to measure the scale
+  // and on-screen orientation), then three points per compass marker.
+  const fov = wasm.getFieldOfView();
+  const eps = Math.max(1e-5, Math.min(2, fov * 0.02)) * DEG_TO_RAD;
+  const tangentStep = Math.max(0.02, Math.min(1, fov * 0.01));
+  const count = 3 + CARDINAL_POINTS.length * 3;
+  const ra = new Float64Array(count), dec = new Float64Array(count);
+  const put = (index, horizonVector) => {
+    const eq = Astro.vectorToSpherical(Astro.multiplyMatrixVector(matrix, horizonVector));
+    ra[index] = eq[0];
+    dec[index] = eq[1];
+  };
+  const nudged = tangent => Astro.normalize([
+    Math.cos(eps) * forward[0] + Math.sin(eps) * tangent[0],
+    Math.cos(eps) * forward[1] + Math.sin(eps) * tangent[1],
+    Math.cos(eps) * forward[2] + Math.sin(eps) * tangent[2]
+  ]);
+  put(0, forward);
+  put(1, nudged(up0));
+  put(2, nudged(right0));
+  CARDINAL_POINTS.forEach((point, i) => {
+    put(3 + i * 3, Astro.altAzToVector(point.az, 0));
+    put(4 + i * 3, Astro.altAzToVector(point.az - tangentStep, 0));
+    put(5 + i * 3, Astro.altAzToVector(point.az + tangentStep, 0));
+  });
+  let xy;
+  try{ xy = wasm.worldToScreenVec(ra, dec); }catch(error){ return; }
+  if(!xy || xy.length !== count * 2) return;
+
+  const cx = xy[0], cy = xy[1];
+  const sux = xy[2] - cx, suy = xy[3] - cy;
+  const srx = xy[4] - cx, sry = xy[5] - cy;
+  const suLength = Math.hypot(sux, suy), srLength = Math.hypot(srx, sry);
+  if(!(suLength > 1e-6) || !(srLength > 1e-6) || (cx === 0 && cy === 0)) return;
+  const kCss = suLength / (2 * Math.tan(eps / 2));
+  groundView.degPerPx = (eps / DEG_TO_RAD) / suLength;
+
+  const sunHz = Astro.sunAltAz(observer.latitude, observer.longitude, groundView.frameMs);
+  const sunVector = Astro.altAzToVector(sunHz.az, sunHz.alt);
+  const day = groundView.options.daylight ? sunDaylightFactor(sunHz.alt) : 0;
+
+  let cardinalVerts = 0;
+  if(groundView.options.cardinals && groundView.cardinalAtlas){
+    const data = groundView.cardinalData;
+    let n = 0;
+    CARDINAL_POINTS.forEach((point, i) => {
+      const x = xy[6 + i * 6], y = xy[7 + i * 6];
+      const ax = xy[8 + i * 6], ay = xy[9 + i * 6];
+      const bx = xy[10 + i * 6], by = xy[11 + i * 6];
+      if((x === 0 && y === 0) || (ax === 0 && ay === 0) || (bx === 0 && by === 0)) return;
+      if(!Number.isFinite(x) || !Number.isFinite(y)) return;
+      if(x < -60 || x > W + 60 || y < -60 || y > H + 60) return;
+      let tx = bx - ax, ty = by - ay;
+      const tLength = Math.hypot(tx, ty);
+      if(!(tLength > 1e-6) || !Number.isFinite(tLength)) return;
+      tx /= tLength; ty /= tLength;
+      // Screen "up" for this marker: perpendicular to the horizon, sky side.
+      const nx = ty, ny = -tx;
+      const e = groundView.cardinalAtlas.entries[i];
+      const hw = e.w / 2, hh = e.h / 2;
+      const corner = (sx, sy) => [x + tx * hw * sx + nx * hh * sy, y + ty * hw * sx + ny * hh * sy];
+      const tl = corner(-1, 1), tr = corner(1, 1), bl = corner(-1, -1), br = corner(1, -1);
+      data.set([
+        tl[0], tl[1], e.u0, e.v0,  tr[0], tr[1], e.u1, e.v0,  bl[0], bl[1], e.u0, e.v1,
+        tr[0], tr[1], e.u1, e.v0,  br[0], br[1], e.u1, e.v1,  bl[0], bl[1], e.u0, e.v1
+      ], n);
+      n += 24;
+    });
+    cardinalVerts = n / 4;
+  }
+
+  globeLayer.drawing = true;
+  const saved = saveGlobeGlState(gl);
+  try{
+    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.disable(gl.DEPTH_TEST);
+    gl.disable(gl.SCISSOR_TEST);
+    gl.disable(gl.STENCIL_TEST);
+    gl.disable(gl.CULL_FACE);
+    gl.colorMask(true, true, true, true);
+    gl.enable(gl.BLEND);
+    gl.blendEquation(gl.FUNC_ADD);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+
+    const {program, uniforms} = groundView.program;
+    gl.useProgram(program);
+    gl.bindVertexArray(groundView.vao);
+    gl.uniform2f(uniforms.u_center, cx * dpr, canvas.height - cy * dpr);
+    gl.uniform1f(uniforms.u_k, kCss * dpr);
+    gl.uniform2f(uniforms.u_su, sux / suLength, -suy / suLength);
+    gl.uniform2f(uniforms.u_sr, srx / srLength, -sry / srLength);
+    gl.uniform3f(uniforms.u_f, forward[0], forward[1], forward[2]);
+    gl.uniform3f(uniforms.u_u, up0[0], up0[1], up0[2]);
+    gl.uniform3f(uniforms.u_r, right0[0], right0[1], right0[2]);
+    gl.uniform1f(uniforms.u_treeline, groundView.options.treeline ? 1 : 0);
+    gl.uniform1f(uniforms.u_line, groundView.options.horizonLine ? 1 : 0);
+    gl.uniform1f(uniforms.u_day, day);
+    gl.uniform1f(uniforms.u_light, 1 + 2.2 * day);
+    gl.uniform3f(uniforms.u_sun, sunVector[0], sunVector[1], sunVector[2]);
+    gl.uniform1f(uniforms.u_sunDisc, groundView.options.daylight ? 1 : 0);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+    if(cardinalVerts){
+      const text = globeLayer.textProgram;
+      gl.useProgram(text.program);
+      gl.bindVertexArray(groundView.cardinalVao);
+      gl.bindBuffer(gl.ARRAY_BUFFER, groundView.cardinalBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, groundView.cardinalData.subarray(0, cardinalVerts * 4), gl.DYNAMIC_DRAW);
+      gl.uniform2f(text.uniforms.u_view, W, H);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, groundView.cardinalAtlas.texture);
+      gl.bindSampler(0, null);
+      gl.uniform1i(text.uniforms.u_tex, 0);
+      gl.drawArrays(gl.TRIANGLES, 0, cardinalVerts);
+    }
+  }catch(error){
+    console.error("Ground layer draw failed.", error);
+  }finally{
+    restoreGlobeGlState(gl, saved);
+    globeLayer.drawing = false;
+  }
+}
+
+// The translucent constellation figures live on a 2D canvas above the sky,
+// so remove whatever part of them falls below the horizon.
+function eraseBelowHorizon(ctx, W, H){
+  const matrix = groundView.matrix;
+  const wasm = aladin.view && aladin.view.wasm;
+  if(!matrix || !wasm || typeof wasm.worldToScreenVec !== "function") return;
+  const n = 360;
+  const ra = new Float64Array(n), dec = new Float64Array(n);
+  for(let i = 0; i < n; i++){
+    const eq = Astro.vectorToSpherical(Astro.multiplyMatrixVector(matrix, Astro.altAzToVector(i, 0)));
+    ra[i] = eq[0];
+    dec[i] = eq[1];
+  }
+  let xy;
+  try{ xy = wasm.worldToScreenVec(ra, dec); }catch(error){ return; }
+  if(!xy || xy.length !== n * 2) return;
+  const horizon = new Path2D();
+  let started = false;
+  for(let i = 0; i < n; i++){
+    let x = xy[2 * i], y = xy[2 * i + 1];
+    if((x === 0 && y === 0) || !Number.isFinite(x) || !Number.isFinite(y)) continue;
+    // Keep far-away points on their ray but within what a canvas can handle.
+    const dx = x - W / 2, dy = y - H / 2, r = Math.hypot(dx, dy);
+    if(r > 1e6){ x = W / 2 + dx / r * 1e6; y = H / 2 + dy / r * 1e6; }
+    if(started) horizon.lineTo(x, y);
+    else{ horizon.moveTo(x, y); started = true; }
+  }
+  if(!started) return;
+  horizon.closePath();
+  ctx.save();
+  ctx.globalCompositeOperation = "destination-out";
+  ctx.fillStyle = "#000";
+  // The horizon projects to a closed curve; its inside is the half of the
+  // sphere that contains the view centre.
+  if(groundView.alt >= 0){
+    const outside = new Path2D();
+    outside.rect(-10, -10, W + 20, H + 20);
+    outside.addPath(horizon);
+    ctx.fill(outside, "evenodd");
+  }else{
+    ctx.fill(horizon);
+  }
+  ctx.restore();
+}
+
+// Camera/OAG/mosaic frames are drawn with celestial north up. In Ground view
+// north is usually tilted, so turn the whole overlay to match the sky.
+function syncOverlayTransform(){
+  const graphics = $("graphics");
+  if(!graphics) return;
+  if(!groundView.active || !aladin){
+    if(graphics.hasAttribute("transform")) graphics.removeAttribute("transform");
+    return;
+  }
+  const W = $("viewer").clientWidth, H = $("viewer").clientHeight;
+  const rotation = aladin.view.wasm.getRotation();
+  graphics.setAttribute("transform", `rotate(${(-rotation).toFixed(3)} ${W / 2} ${H / 2})`);
+}
+
+function enterGroundView(){
+  if(groundView.active || !aladin) return;
+  if(!Astro || !initGroundLayer()){
+    skyStatus("Ground view needs WebGL 2, which this browser did not provide.");
+    setTimeout(() => skyStatus(""), 6000);
+    syncGroundUi();
+    return;
+  }
+  const view = aladin.view, wasm = view.wasm;
+  groundView.saved = {
+    center: aladin.getRaDec(),
+    zoomFactor: view.zoomFactor,
+    rotation: wasm.getRotation(),
+    projection: aladin.getProjectionName ? aladin.getProjectionName() : "SIN"
+  };
+  if(!groundView.started){
+    // First visit: face the equator side of the sky, like a planetarium.
+    groundView.az = observer.latitude >= 0 ? 180 : 0;
+    groundView.alt = 25;
+    groundView.roll = 0;
+    groundView.started = true;
+  }
+  groundView.active = true;
+  try{ wasm.setInertia(false); }catch(error){ /* keep Aladin's default */ }
+  view.setProjection(GROUND_PROJECTION);
+  if(groundView.zoomFactor > 0) view.setZoomFactor(groundView.zoomFactor);
+  else aladin.setFoV(GROUND_DEFAULT_FOV);
+  groundView.degPerPx = 0;
+  groundView.appliedCenter = null;
+  groundView.dirty = true;
+  applyGroundCamera();
+  syncGroundUi();
+  requestSkyFrame();
+  update();
+  scheduleConstellationDraw();
+}
+
+function leaveGroundView(){
+  if(!groundView.active || !aladin) return;
+  const view = aladin.view, wasm = view.wasm;
+  const saved = groundView.saved;
+  groundView.zoomFactor = view.zoomFactor;
+  groundView.active = false;
+  if(saved){
+    view.setProjection(saved.projection || "SIN");
+    view.setZoomFactor(saved.zoomFactor);
+    wasm.setCenter(saved.center[0], saved.center[1]);
+    if(typeof view.updateCenter === "function") view.updateCenter();
+    if(view.viewCenter && view.aladinDiv){
+      view.aladinDiv.dispatchEvent(new CustomEvent("AL:position.changed", {detail: view.viewCenter}));
+    }
+    wasm.setRotation(saved.rotation);
+  }
+  try{ wasm.setInertia(true); }catch(error){ /* keep going */ }
+  syncOverlayTransform();
+  syncGroundUi();
+  requestSkyFrame();
+  update();
+  scheduleConstellationDraw();
+}
+
+function setGroundView(on){
+  if(on) enterGroundView();
+  else leaveGroundView();
+}
+
+function compassName(az){
+  const names = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+  return names[Math.round(Astro.normalizeDegrees(az) / 22.5) % 16];
+}
+
+function pad2(n){ return String(Math.trunc(Math.abs(n))).padStart(2, "0"); }
+
+function formatUtcOffset(date){
+  const minutes = -date.getTimezoneOffset();
+  return `UTC${minutes < 0 ? "−" : "+"}${pad2(minutes / 60)}:${pad2(minutes % 60)}`;
+}
+
+function formatLocalDateTime(ms){
+  const d = new Date(ms);
+  if(Number.isNaN(d.getTime())) return "—";
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ` +
+    `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())} ${formatUtcOffset(d)}`;
+}
+
+function toDatetimeLocalValue(ms){
+  const d = new Date(ms);
+  if(Number.isNaN(d.getTime())) return "";
+  return `${String(d.getFullYear()).padStart(4, "0")}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T` +
+    `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+}
+
+function formatObserverLocation(){
+  const lat = observer.latitude, lon = observer.longitude;
+  const text = `${Math.abs(lat).toFixed(4)}° ${lat >= 0 ? "N" : "S"}, ${Math.abs(lon).toFixed(4)}° ${lon >= 0 ? "E" : "W"}, ${Math.round(observer.elevation)} m`;
+  return observer.isDefault ? `${text} (default: Los Angeles)` : text;
+}
+
+function describeSun(altitude){
+  if(altitude > 0) return "day";
+  if(altitude > -6) return "civil twilight";
+  if(altitude > -12) return "nautical twilight";
+  if(altitude > -18) return "astronomical twilight";
+  return "night";
+}
+
+function syncGroundUi(){
+  const on = groundView.active;
+  $("viewer").classList.toggle("groundActive", on);
+  if($("groundToggle")){
+    $("groundToggle").setAttribute("aria-pressed", String(on));
+    $("groundToggle").textContent = on ? "Exit ground view" : "Ground view";
+  }
+  if($("groundEnable")) $("groundEnable").checked = on;
+  if($("groundStatus")) $("groundStatus").hidden = !on;
+  updateGroundReadouts();
+}
+
+// Text readouts (status bar and sidebar). Called a few times a second.
+function updateGroundReadouts(){
+  if(!Astro || !$("groundStatus")) return;
+  const ms = groundNowMs();
+  const timeInput = $("groundTime");
+  if(timeInput && document.activeElement !== timeInput) timeInput.value = toDatetimeLocalValue(ms);
+  syncObserverInputs();
+
+  const sun = Astro.sunAltAz(observer.latitude, observer.longitude, ms);
+  const lstHours = Astro.localSiderealDegrees(observer.longitude, ms) / 15;
+  $("groundLst").textContent = `${pad2(lstHours)}h ${pad2((lstHours % 1) * 60)}m`;
+  $("groundSun").textContent = `${sun.alt >= 0 ? "+" : "−"}${Math.abs(sun.alt).toFixed(1)}° · ${describeSun(sun.alt)}`;
+  $("groundLocation").textContent = formatObserverLocation();
+
+  if(!groundView.active || !aladin){
+    $("groundLook").textContent = "Ground view is off";
+    return;
+  }
+  const apparent = Astro.apparentAltitude(groundView.alt);
+  const altText = `${groundView.alt >= 0 ? "+" : "−"}${Math.abs(groundView.alt).toFixed(1)}°`;
+  $("groundLook").textContent =
+    `Az ${groundView.az.toFixed(1)}° (${compassName(groundView.az)}) · Alt ${altText}` +
+    (groundView.alt > -1 && groundView.alt < 20 ? ` (refracted ${apparent.toFixed(1)}°)` : "");
+  const fov = aladin.view.wasm.getFieldOfView();
+  const rate = groundClock.rate;
+  const rateText = rate === 1 ? "" : rate === 0 ? " · paused" : ` · ${rate}× speed`;
+  $("groundStatus").textContent =
+    `${formatObserverLocation()} · FOV ${fov >= 10 ? fov.toFixed(1) : fov.toFixed(2)}° · ` +
+    `Az ${groundView.az.toFixed(1)}° ${compassName(groundView.az)} · Alt ${altText} · ` +
+    `${formatLocalDateTime(ms)}${rateText}`;
+}
+
+function installGroundView(){
+  loadSavedObserver();
+  syncObserverInputs();
+
+  $("groundToggle").addEventListener("click", () => setGroundView(!groundView.active));
+  $("groundEnable").addEventListener("change", () => setGroundView($("groundEnable").checked));
+
+  const readLocationInputs = () => {
+    const ok = setObserver(Number($("groundLat").value), Number($("groundLon").value), Number($("groundElev").value) || 0);
+    $("groundLocationNote").textContent = ok ? "" : "Latitude must be −90 to 90 and longitude −180 to 180.";
+  };
+  ["groundLat", "groundLon", "groundElev"].forEach(id => $(id).addEventListener("change", readLocationInputs));
+  $("groundUseDevice").addEventListener("click", () => $("findLocation").click());
+
+  $("groundTime").addEventListener("change", () => {
+    const ms = new Date($("groundTime").value).getTime();
+    if(Number.isFinite(ms)){
+      setGroundClock(ms);
+      if(groundView.active) requestSkyFrame();
+    }
+  });
+  $("groundNow").addEventListener("click", () => {
+    setGroundClock(Date.now(), 1);
+    $("groundSpeed").value = "1";
+    if(groundView.active) requestSkyFrame();
+  });
+  $("groundSpeed").addEventListener("change", () => {
+    const rate = Number($("groundSpeed").value);
+    setGroundClock(groundNowMs(), Number.isFinite(rate) ? rate : 1);
+  });
+
+  [["groundCardinals", "cardinals"], ["groundHorizonLine", "horizonLine"],
+   ["groundTreeline", "treeline"], ["groundDaylight", "daylight"]].forEach(([id, key]) => {
+    $(id).checked = groundView.options[key];
+    $(id).addEventListener("change", () => {
+      groundView.options[key] = $(id).checked;
+      if(groundView.active) requestSkyFrame();
+    });
+  });
+
+  document.querySelectorAll("[data-ground-look]").forEach(button => {
+    button.addEventListener("click", () => {
+      if(!groundView.active) setGroundView(true);
+      if(!groundView.active) return;
+      const where = button.dataset.groundLook;
+      if(where === "zenith") groundLookAt(groundView.az, 90);
+      else groundLookAt(Number(where), groundView.alt > 60 ? 25 : groundView.alt);
+    });
+  });
+  $("groundLevel").addEventListener("click", () => {
+    groundView.roll = 0;
+    groundView.dirty = true;
+    if(groundView.active) requestSkyFrame();
+  });
+  $("groundLookTarget").addEventListener("click", () => {
+    if(!groundView.active) setGroundView(true);
+    if(!groundView.active || !groundView.saved) return;
+    const hz = equatorialToHorizon(groundMatrixAt(groundNowMs()), groundView.saved.center[0], groundView.saved.center[1]);
+    groundLookAt(hz.az, hz.alt);
+    $("groundLocationNote").textContent = hz.alt < 0
+      ? `That target is ${Math.abs(hz.alt).toFixed(1)}° below the horizon right now.`
+      : "";
+  });
+
+  syncGroundUi();
+}
+
 // Keyboard navigation. Every held key drives the view from a single
 // frame-synchronised loop at a constant rate, so motion starts on the very
 // first frame and never waits for the operating system's key auto-repeat.
@@ -2360,7 +3347,10 @@ const KEY_MIN_PRESS_MS = 120;
 const SCREEN_CLOCKWISE_SIGN = -1;     // a positive Aladin rotation angle turns the view counter-clockwise on screen
 
 function installKeyboardNavigation(){
-  const isEditable = el => el && (el.isContentEditable || /^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName));
+  // Text fields, sliders and menus keep their own arrow-key behaviour;
+  // a focused checkbox does not use these keys, so the sky can.
+  const isEditable = el => el && (el.isContentEditable ||
+    (/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName) && el.type !== "checkbox"));
   const active = new Map(); // action -> {pressedAt, releaseAt}
   let frame = 0;
   let last = 0;
@@ -2401,7 +3391,11 @@ function installKeyboardNavigation(){
 
     // Rotate at a constant angular rate.
     const rotDir = (on("rotateCw") ? 1 : 0) - (on("rotateCcw") ? 1 : 0);
-    if(rotDir){
+    if(rotDir && groundView.active){
+      // Ground view levels the horizon every frame; the keys add a roll on top.
+      groundView.roll = Astro.angleDifference(groundView.roll + rotDir * KEY_ROTATE_DEG_PER_SEC * dt, 0);
+      groundView.dirty = true;
+    }else if(rotDir){
       const next = ((aladin.getRotation() + rotDir * SCREEN_CLOCKWISE_SIGN * KEY_ROTATE_DEG_PER_SEC * dt) % 360 + 360) % 360;
       view.setRotation(next);
     }
@@ -2411,7 +3405,12 @@ function installKeyboardNavigation(){
     // view travels in the arrow's direction whatever the rotation or zoom.
     let px = (on("panRight") ? 1 : 0) - (on("panLeft") ? 1 : 0);
     let py = (on("panDown") ? 1 : 0) - (on("panUp") ? 1 : 0);
-    if((px || py) && view.wasm && typeof view.wasm.goFromTo === "function"){
+    if((px || py) && groundView.active){
+      // Left/right turn in azimuth, up/down tilt in altitude.
+      if(px && py){ px *= Math.SQRT1_2; py *= Math.SQRT1_2; }
+      const step = KEY_PAN_SCREENS_PER_SEC * Math.min(view.width, view.height) * dt;
+      groundPanByPixels(px * step, py * step);
+    }else if((px || py) && view.wasm && typeof view.wasm.goFromTo === "function"){
       if(px && py){ px *= Math.SQRT1_2; py *= Math.SQRT1_2; }
       const step = KEY_PAN_SCREENS_PER_SEC * Math.min(view.width, view.height) * dt;
       const cx = view.width / 2, cy = view.height / 2;
@@ -2528,6 +3527,7 @@ A.init.then(async () => {
   attachConstellationsToSkyFrame();
   boostPinchZoom();
   installKeyboardNavigation();
+  installGroundView();
 
   ["showConstellationLines","showConstellationFigures","showConstellationNames"].forEach(id => {
     $(id).addEventListener("change", () => {
@@ -2581,7 +3581,7 @@ A.init.then(async () => {
 
     navigator.geolocation.getCurrentPosition(
       position => {
-        useObserverLocation(position.coords.latitude, position.coords.longitude);
+        useObserverLocation(position.coords.latitude, position.coords.longitude, position.coords.altitude);
         button.disabled = false;
         button.textContent = "Update my location";
       },
